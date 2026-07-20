@@ -11,6 +11,7 @@ from app.claude_client import analyze, phrase_answer_as_bullet
 from app.models import GapAnalysis, SuggestedEdit
 from app.resume_apply import docx_inplace, docx_rebuild
 from app.resume_ingest import docx_ingest, pdf_ingest
+from app.summary import build_summary_markdown
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -123,10 +124,17 @@ async def apply_job(job_id: str, body: ApplyRequest):
         failed = docx_rebuild.build(blocks, body.accepted_edits, output)
 
     storage.save_bytes(job_id, "final.docx", output.getvalue())
+
+    analysis = _load_analysis(job_id)
+    summary_markdown = build_summary_markdown(analysis, body.accepted_edits, failed)
+    storage.save_bytes(job_id, "summary.md", summary_markdown.encode("utf-8"))
+
     return {
         "job_id": job_id,
         "failed_edit_ids": failed,
         "download_url": f"/api/jobs/{job_id}/download",
+        "summary_markdown": summary_markdown,
+        "summary_download_url": f"/api/jobs/{job_id}/summary",
     }
 
 
@@ -139,4 +147,16 @@ async def download_job(job_id: str):
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": 'attachment; filename="tailored_resume.docx"'},
+    )
+
+
+@router.get("/{job_id}/summary")
+async def download_summary(job_id: str):
+    if not storage.exists(job_id, "summary.md"):
+        raise HTTPException(404, "No summary for this job_id yet")
+    data = storage.load_bytes(job_id, "summary.md")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="text/markdown",
+        headers={"Content-Disposition": 'attachment; filename="resume_changes_summary.md"'},
     )

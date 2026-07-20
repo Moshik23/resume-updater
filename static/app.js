@@ -11,7 +11,34 @@ const gapsList = document.getElementById("gaps-list");
 const editsList = document.getElementById("edits-list");
 const generateButton = document.getElementById("generate-button");
 const generateStatus = document.getElementById("generate-status");
+const summarySection = document.getElementById("summary-section");
+const summaryContent = document.getElementById("summary-content");
 const downloadLink = document.getElementById("download-link");
+const summaryDownloadLink = document.getElementById("summary-download-link");
+
+const steps = {
+  upload: document.querySelector('.step[data-step="1"]'),
+  review: document.querySelector('.step[data-step="2"]'),
+  download: document.querySelector('.step[data-step="3"]'),
+};
+
+function setStep(name) {
+  const order = ["upload", "review", "download"];
+  const activeIndex = order.indexOf(name);
+  order.forEach((key, index) => {
+    steps[key].classList.toggle("is-active", index === activeIndex);
+    steps[key].classList.toggle("is-done", index < activeIndex);
+  });
+}
+
+function setStatus(el, message, state) {
+  el.textContent = message;
+  if (state) {
+    el.dataset.state = state;
+  } else {
+    delete el.dataset.state;
+  }
+}
 
 function renderGaps() {
   gapsList.innerHTML = "";
@@ -49,6 +76,72 @@ function renderEdits() {
   }
 }
 
+// Renders the small, controlled markdown subset that app/summary.py emits
+// (# / ## headings, "- " bullets with one level of nested "  - " bullets,
+// and **bold**). Not a general-purpose markdown parser.
+function renderSummaryMarkdown(markdown) {
+  const lines = markdown.split("\n").map((line) => line.trimEnd());
+  let html = "";
+  let inTopList = false;
+  let inNestedList = false;
+  let topItemOpen = false;
+
+  const closeNestedList = () => {
+    if (inNestedList) {
+      html += "</ul>";
+      inNestedList = false;
+    }
+  };
+  const closeTopItem = () => {
+    closeNestedList();
+    if (topItemOpen) {
+      html += "</li>";
+      topItemOpen = false;
+    }
+  };
+  const closeTopList = () => {
+    closeTopItem();
+    if (inTopList) {
+      html += "</ul>";
+      inTopList = false;
+    }
+  };
+
+  const inlineFormat = (text) =>
+    escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+  for (const line of lines) {
+    if (line.startsWith("# ")) {
+      closeTopList();
+      continue; // top-level title is already shown as the section heading
+    }
+    if (line.startsWith("## ")) {
+      closeTopList();
+      html += `<h2>${inlineFormat(line.slice(3))}</h2>`;
+      continue;
+    }
+    const nestedMatch = line.match(/^ {2}- (.*)$/);
+    const topMatch = line.match(/^- (.*)$/);
+    if (nestedMatch) {
+      if (!inNestedList) {
+        html += "<ul>";
+        inNestedList = true;
+      }
+      html += `<li>${inlineFormat(nestedMatch[1])}</li>`;
+    } else if (topMatch) {
+      closeTopItem();
+      if (!inTopList) {
+        html += "<ul>";
+        inTopList = true;
+      }
+      html += `<li>${inlineFormat(topMatch[1])}`;
+      topItemOpen = true;
+    }
+  }
+  closeTopList();
+  return html;
+}
+
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str ?? "";
@@ -76,7 +169,7 @@ uploadForm.addEventListener("submit", async (event) => {
   formData.append("resume", fileInput.files[0]);
   formData.append("job_description", jobDescription);
 
-  uploadStatus.textContent = "Analyzing resume against job description...";
+  setStatus(uploadStatus, "Analyzing resume against job description...");
   const submitButton = uploadForm.querySelector("button");
   submitButton.disabled = true;
 
@@ -91,12 +184,14 @@ uploadForm.addEventListener("submit", async (event) => {
     gaps = data.gaps;
     edits = data.suggested_edits;
 
-    uploadStatus.textContent = "";
+    setStatus(uploadStatus, "");
     resultsSection.hidden = false;
+    setStep("review");
     renderGaps();
     renderEdits();
+    resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
-    uploadStatus.textContent = err.message;
+    setStatus(uploadStatus, err.message, "error");
   } finally {
     submitButton.disabled = false;
   }
@@ -104,8 +199,10 @@ uploadForm.addEventListener("submit", async (event) => {
 
 generateButton.addEventListener("click", async () => {
   generateButton.disabled = true;
+  summarySection.hidden = true;
   downloadLink.hidden = true;
-  generateStatus.textContent = "Submitting answers...";
+  summaryDownloadLink.hidden = true;
+  setStatus(generateStatus, "Submitting answers...");
 
   try {
     const answers = [];
@@ -130,7 +227,7 @@ generateButton.addEventListener("click", async () => {
       renderEdits();
     }
 
-    generateStatus.textContent = "Generating tailored resume...";
+    setStatus(generateStatus, "Generating tailored resume...");
 
     const acceptedEdits = [];
     for (const editDiv of editsList.children) {
@@ -152,14 +249,27 @@ generateButton.addEventListener("click", async () => {
     }
     const applyData = await applyResponse.json();
 
-    generateStatus.textContent =
+    setStatus(
+      generateStatus,
       applyData.failed_edit_ids.length > 0
-        ? `Done, with ${applyData.failed_edit_ids.length} edit(s) that couldn't be applied automatically.`
-        : "Done.";
+        ? `Done, with ${applyData.failed_edit_ids.length} edit(s) that couldn't be applied automatically — see the summary below.`
+        : "Done.",
+      "success",
+    );
     downloadLink.href = applyData.download_url;
     downloadLink.hidden = false;
+
+    if (applyData.summary_markdown) {
+      summaryContent.innerHTML = renderSummaryMarkdown(applyData.summary_markdown);
+      summaryDownloadLink.href = applyData.summary_download_url;
+      summaryDownloadLink.hidden = false;
+      summarySection.hidden = false;
+    }
+
+    setStep("download");
+    summarySection.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (err) {
-    generateStatus.textContent = err.message;
+    setStatus(generateStatus, err.message, "error");
   } finally {
     generateButton.disabled = false;
   }
