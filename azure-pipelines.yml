@@ -21,58 +21,55 @@ stages:
         steps:
           - task: AzureCLI@2
             # ACR Tasks (az acr build) is blocked on this subscription
-            # (TasksOperationsNotAllowed) -- build locally on the hosted
-            # agent instead and push straight to ACR via `az acr login` +
+            # (TasksOperationsNotAllowed) -- build locally on the agent
+            # instead and push straight to ACR via `az acr login` +
             # `docker push`, using the same OIDC service connection.
+            # scriptType ps (Windows PowerShell) rather than bash: this
+            # Windows agent has a broken WSL bash.exe shim ahead of Git
+            # Bash on PATH. PowerShell Core (pwsh/pscore) isn't installed
+            # on this agent either, so this uses Windows PowerShell
+            # specifically -- not portable to a Linux hosted pool as-is.
             displayName: "docker build + push to ACR (ACR Tasks blocked on this subscription)"
             inputs:
               azureSubscription: "resume-updater-arm-connection"
-              scriptType: bash
+              scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
                 az acr login --name $(acrName)
-                docker build -f app/Dockerfile -t $(acrName).azurecr.io/$(imageName):$(Build.SourceVersion) .
-                docker push $(acrName).azurecr.io/$(imageName):$(Build.SourceVersion)
+                docker build -f app/Dockerfile -t "$(acrName).azurecr.io/$(imageName):$(Build.SourceVersion)" .
+                docker push "$(acrName).azurecr.io/$(imageName):$(Build.SourceVersion)"
 
   - stage: Deploy
     dependsOn: Build
     jobs:
       - job: TerraformApply
         steps:
-          - bash: |
-              if command -v terraform >/dev/null 2>&1; then
-                echo "Terraform already installed on this agent:"
+          - powershell: |
+              if (Get-Command terraform -ErrorAction SilentlyContinue) {
+                Write-Host "Terraform already installed on this agent:"
                 terraform version
-              else
-                TF_VERSION=1.15.8
-                case "$(uname -s)" in
-                  Linux*)
-                    curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
-                    sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
-                    ;;
-                  MINGW*|MSYS*|CYGWIN*)
-                    curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_windows_amd64.zip"
-                    unzip -o /tmp/terraform.zip -d /usr/bin
-                    ;;
-                  *)
-                    echo "Unsupported OS for auto-install: $(uname -s)"; exit 1
-                    ;;
-                esac
-                terraform version
-              fi
+              } else {
+                $TfVersion = "1.15.8"
+                $zipPath = Join-Path $env:AGENT_TEMPDIRECTORY "terraform.zip"
+                $binDir = Join-Path $env:AGENT_TEMPDIRECTORY "terraform_bin"
+                Invoke-WebRequest -Uri "https://releases.hashicorp.com/terraform/$TfVersion/terraform_${TfVersion}_windows_amd64.zip" -OutFile $zipPath
+                Expand-Archive -Path $zipPath -DestinationPath $binDir -Force
+                Write-Host "##vso[task.prependpath]$binDir"
+                & "$binDir\terraform.exe" version
+              }
             displayName: "Install Terraform (skips if already present on this agent)"
           - task: AzureCLI@2
             displayName: "terraform apply (azurerm provider picks up az login via use_cli)"
             inputs:
               azureSubscription: "resume-updater-arm-connection"
-              scriptType: bash
+              scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
-                cd terraform
+                Set-Location terraform
                 terraform init
-                terraform apply -auto-approve \
-                  -var="container_image_tag=$(Build.SourceVersion)" \
-                  -var="anthropic_api_key=$ANTHROPIC_API_KEY"
+                terraform apply -auto-approve `
+                  -var="container_image_tag=$(Build.SourceVersion)" `
+                  -var="anthropic_api_key=$env:ANTHROPIC_API_KEY"
             env:
               # Set ANTHROPIC_API_KEY as a secret pipeline variable in the Azure
               # DevOps UI (Pipelines -> Edit -> Variables) -- never in this file.
