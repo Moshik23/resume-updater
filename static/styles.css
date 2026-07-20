@@ -65,16 +65,15 @@ body {
   margin-bottom: 2rem;
 }
 
-.hero-icon {
-  font-size: 2.25rem;
-  width: 4rem;
-  height: 4rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto 1rem;
-  background: var(--accent-soft);
+.hero-photo {
+  width: 5.5rem;
+  height: 5.5rem;
   border-radius: 50%;
+  object-fit: cover;
+  margin: 0 auto 1rem;
+  display: block;
+  border: 3px solid var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .hero h1 {
@@ -89,6 +88,22 @@ body {
   margin: 0 auto;
   max-width: 46ch;
   font-size: 1rem;
+}
+
+.hero-byline {
+  margin: 0.6rem 0 0;
+}
+
+.hero-byline a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: color 0.15s;
+}
+
+.hero-byline a:hover {
+  color: var(--accent);
 }
 
 /* Step indicator */

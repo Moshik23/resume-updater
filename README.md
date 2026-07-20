@@ -214,4 +214,9 @@ notes above.
 
 ## Credit
 
-Built by [Moshik Seetloo](https://github.com/Moshik23).
+Built by [Moshik Seetloo](https://github.com/Moshik23) — photo and byline
+in the page header, plus a footer credit. `static/photo.jpg` is a
+center-cropped, 400×400 JPEG (resized with Pillow, using
+`ImageOps.exif_transpose()` to avoid dropping phone-camera orientation
+metadata — the same gotcha the photo-inbox feature on `memories-site` ran
+into).
