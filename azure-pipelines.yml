@@ -65,6 +65,15 @@ stages:
               scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
+                # Remote state lives in the resumeupdaterstorage account's
+                # tfstate container (see terraform/main.tf) -- required
+                # since this pipeline runs from a fresh checkout each time
+                # and must share state with manual applies from other
+                # checkouts, not start from an empty one.
+                $env:ARM_ACCESS_KEY = az storage account keys list `
+                  --account-name resumeupdaterstorage `
+                  --resource-group resume-updater-rg `
+                  --query "[0].value" -o tsv
                 Set-Location terraform
                 terraform init
                 terraform apply -auto-approve `

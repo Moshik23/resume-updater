@@ -60,10 +60,21 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=<your-key> resume-updater-app:local
 ## Deploying to Azure
 
 1. `az login`
-2. `cd terraform && terraform init && terraform apply -var="container_image_tag=<tag>" -var="anthropic_api_key=<your-key>"`
-   - State is local (`terraform.tfstate`, gitignored) — this is a solo
-     project, not a team one, so a remote backend isn't worth the bootstrap
-     complexity.
+2. Terraform state is remote (Azure Storage, `resumeupdaterstorage` account,
+   `tfstate` container — see `terraform/main.tf`), required because both
+   this CLI and the CI/CD pipeline apply changes and must share state
+   rather than each starting from empty. Auth is via the storage account's
+   access key, fetched dynamically (never committed):
+   ```powershell
+   $env:ARM_ACCESS_KEY = az storage account keys list --account-name resumeupdaterstorage --resource-group resume-updater-rg --query "[0].value" -o tsv
+   cd terraform
+   terraform init
+   terraform apply -var="container_image_tag=<tag>" -var="anthropic_api_key=<your-key>"
+   ```
+   - **Bootstrap note:** the `tfstate` container itself is created out-of-band
+     (`az storage container create --name tfstate --account-name resumeupdaterstorage --auth-mode login`),
+     not managed by this Terraform config — a backend can't manage the
+     storage it depends on to exist first.
    - **First-apply RBAC quirk:** Key Vault secret writes and the app's role
      assignments need RBAC role propagation to finish before they're usable.
      If the first `apply` errors on a permission check, re-run it — this is
