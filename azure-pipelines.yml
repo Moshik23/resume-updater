@@ -1,6 +1,6 @@
 trigger:
   branches:
-    include: [main]
+    include: [master]
 
 pool:
   vmImage: ubuntu-latest
@@ -15,15 +15,19 @@ stages:
       - job: BuildAndPush
         steps:
           - task: AzureCLI@2
-            displayName: "az acr build (push to ACR via OIDC service connection)"
+            # ACR Tasks (az acr build) is blocked on this subscription
+            # (TasksOperationsNotAllowed) -- build locally on the hosted
+            # agent instead and push straight to ACR via `az acr login` +
+            # `docker push`, using the same OIDC service connection.
+            displayName: "docker build + push to ACR (ACR Tasks blocked on this subscription)"
             inputs:
               azureSubscription: "resume-updater-arm-connection"
               scriptType: bash
               scriptLocation: inlineScript
               inlineScript: |
-                az acr build --registry $(acrName) \
-                  --image $(imageName):$(Build.SourceVersion) \
-                  --file app/Dockerfile .
+                az acr login --name $(acrName)
+                docker build -f app/Dockerfile -t $(acrName).azurecr.io/$(imageName):$(Build.SourceVersion) .
+                docker push $(acrName).azurecr.io/$(imageName):$(Build.SourceVersion)
 
   - stage: Deploy
     dependsOn: Build

@@ -68,7 +68,10 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=<your-key> resume-updater-app:local
      assignments need RBAC role propagation to finish before they're usable.
      If the first `apply` errors on a permission check, re-run it — this is
      a known Azure RBAC timing issue, not a config bug.
-3. Push the image: `az acr build --registry resumeupdateracr --image resume-updater-app:<tag> --file app/Dockerfile .`
+3. Push the image (`az acr build` / ACR Tasks is blocked on some
+   subscriptions with `TasksOperationsNotAllowed` — if so, build locally
+   and push instead):
+   `az acr login --name resumeupdateracr && docker build -f app/Dockerfile -t resumeupdateracr.azurecr.io/resume-updater-app:<tag> . && docker push resumeupdateracr.azurecr.io/resume-updater-app:<tag>`
 4. Hit `https://<container_app_fqdn>/healthz` to confirm it's live.
 
 For CI/CD, set up one Azure DevOps service connection named
@@ -77,8 +80,10 @@ For CI/CD, set up one Azure DevOps service connection named
 "Workload Identity federation (automatic)"), scoped to the
 `resume-updater-rg` resource group. No client secret is ever generated.
 Add `ANTHROPIC_API_KEY` as a **secret** pipeline variable (Pipelines → Edit
-→ Variables) — never commit it. Pushing to `main` then builds the image via
-`az acr build` and re-applies Terraform automatically.
+→ Variables) — never commit it. Pushing to `master` then builds the image
+(via `docker build`/`docker push` on the hosted agent — `az acr build` is
+avoided since ACR Tasks may be blocked on the subscription, see above) and
+re-applies Terraform automatically.
 
 ## Cost and security notes
 
