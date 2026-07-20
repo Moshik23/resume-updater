@@ -295,6 +295,40 @@ input[type="file"]:focus {
   font-size: 0.92rem;
 }
 
+/* ATS match score */
+
+.score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1.25rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.score-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.score-badge,
+.score-comparison {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.score-comparison .score-after {
+  color: var(--success);
+}
+
 /* Gap + edit items */
 
 .gap-item,

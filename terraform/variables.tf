@@ -15,6 +15,12 @@ variable "anthropic_api_key" {
   sensitive   = true
 }
 
+variable "site_password" {
+  description = "Shared HTTP Basic Auth password gating the whole app -- keeps a stranger who finds the URL from running up Anthropic API costs. Stored only in Key Vault."
+  type        = string
+  sensitive   = true
+}
+
 variable "deployer_principal_ids" {
   description = "Object IDs of every principal that runs terraform against this config (interactive users and CI/CD service connections) -- each needs Key Vault Secrets Officer to write the anthropic-api-key secret. Explicit and stable, not derived from data.azurerm_client_config.current, since that resolves to whoever is currently running terraform and breaks the moment a second identity (e.g. the CI/CD pipeline) also needs to apply. Not secret -- object IDs are identifiers, not credentials."
   type        = list(string)

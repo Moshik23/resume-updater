@@ -78,8 +78,29 @@ stages:
                 terraform init
                 terraform apply -auto-approve `
                   -var="container_image_tag=$(Build.SourceVersion)" `
-                  -var="anthropic_api_key=$env:ANTHROPIC_API_KEY"
+                  -var="anthropic_api_key=$env:ANTHROPIC_API_KEY" `
+                  -var="site_password=$env:SITE_PASSWORD"
             env:
-              # Set ANTHROPIC_API_KEY as a secret pipeline variable in the Azure
-              # DevOps UI (Pipelines -> Edit -> Variables) -- never in this file.
+              # Set as secret pipeline variables in the Azure DevOps UI
+              # (Pipelines -> Edit -> Variables) -- never in this file.
               ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)
+              SITE_PASSWORD: $(SITE_PASSWORD)
+
+          - powershell: |
+              Set-Location terraform
+              $fqdn = terraform output -raw container_app_fqdn
+              $healthy = $false
+              for ($i = 1; $i -le 12; $i++) {
+                try {
+                  $resp = Invoke-WebRequest -Uri "https://$fqdn/healthz" -UseBasicParsing -TimeoutSec 10
+                  if ($resp.StatusCode -eq 200) { $healthy = $true; break }
+                } catch {
+                  Write-Host "Attempt $i/12: not healthy yet ($($_.Exception.Message))"
+                }
+                Start-Sleep -Seconds 5
+              }
+              if (-not $healthy) {
+                throw "Deployed app never became healthy at https://$fqdn/healthz -- failing the deploy."
+              }
+              Write-Host "Smoke test passed: https://$fqdn/healthz is healthy"
+            displayName: "Post-deploy smoke test (GET /healthz)"

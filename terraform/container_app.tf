@@ -51,6 +51,10 @@ resource "azurerm_container_app" "this" {
         secret_name = "anthropic-api-key"
       }
       env {
+        name        = "SITE_PASSWORD"
+        secret_name = "site-password"
+      }
+      env {
         name  = "AZURE_STORAGE_ACCOUNT_NAME"
         value = azurerm_storage_account.this.name
       }
@@ -67,6 +71,12 @@ resource "azurerm_container_app" "this" {
   secret {
     name                = "anthropic-api-key"
     key_vault_secret_id = azurerm_key_vault_secret.anthropic_api_key.versionless_id
+    identity            = azurerm_user_assigned_identity.app.id
+  }
+
+  secret {
+    name                = "site-password"
+    key_vault_secret_id = azurerm_key_vault_secret.site_password.versionless_id
     identity            = azurerm_user_assigned_identity.app.id
   }
 

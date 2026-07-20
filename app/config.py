@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-5"
+    site_password: str = ""
 
     azure_storage_account_name: str | None = None
     local_storage_dir: str = ".local_jobs"

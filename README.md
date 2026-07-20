@@ -18,6 +18,14 @@ summary of every change:
   covers. Flip the "Show checklist" toggle to get a checkbox next to each
   item, for ticking off as you apply the same changes by hand. Also
   downloadable on its own as a `.md` file.
+- **ATS match score** — a percentage of extracted job requirements the
+  resume covers, shown right after analysis and again as a before → after
+  comparison once the tailored resume is generated. Only counts a
+  requirement as covered once an edit addressing it actually applied
+  successfully — an edit that failed to apply doesn't inflate the score.
+- **Password-gated** — the whole site sits behind a single shared HTTP
+  Basic Auth password (see Cost and security notes), so a stranger who
+  finds the URL can't run up Anthropic API costs.
 
 ## Architecture
 
@@ -52,7 +60,10 @@ account is needed for local dev — `storage.py` falls back to a local
 
 Set `ANTHROPIC_API_KEY` in your environment (or a `.env` file — already
 gitignored) before hitting `/api/jobs`; without it the Claude call fails
-cleanly with a 502 rather than crashing the server.
+cleanly with a 502 rather than crashing the server. `SITE_PASSWORD` is
+optional locally — leave it unset and the password gate is a no-op, so
+local dev is never blocked by it. `/healthz` is always exempt from the
+gate (the pipeline's post-deploy smoke test hits it with no credentials).
 
 Sample files for testing are in `samples/`: `sample_resume.docx`,
 `sample_resume.pdf`, and `sample_job_description.txt` (regenerate the
@@ -77,7 +88,7 @@ docker run -p 8000:8000 -e ANTHROPIC_API_KEY=<your-key> resume-updater-app:local
    $env:ARM_ACCESS_KEY = az storage account keys list --account-name resumeupdaterstorage --resource-group resume-updater-rg --query "[0].value" -o tsv
    cd terraform
    terraform init
-   terraform apply -var="container_image_tag=<tag>" -var="anthropic_api_key=<your-key>"
+   terraform apply -var="container_image_tag=<tag>" -var="anthropic_api_key=<your-key>" -var="site_password=<your-chosen-password>"
    ```
    - **Bootstrap note:** the `tfstate` container itself is created out-of-band
      (`az storage container create --name tfstate --account-name resumeupdaterstorage --auth-mode login`),
@@ -116,9 +127,11 @@ Set up one Azure DevOps service connection named
 (Project Settings → Service connections → Azure Resource Manager →
 "Workload Identity federation (automatic)"), scoped to the
 `resume-updater-rg` resource group. No client secret is ever generated.
-Add `ANTHROPIC_API_KEY` as a **secret** pipeline variable (Pipelines → Edit
-→ Variables) — never commit it. Pushing to `master` then builds the image
-and re-applies Terraform automatically.
+Add `ANTHROPIC_API_KEY` and `SITE_PASSWORD` as **secret** pipeline variables
+(Pipelines → Edit → Variables) — never commit either. Pushing to `master`
+then builds the image, re-applies Terraform, and runs a post-deploy smoke
+test (retries `GET /healthz` for up to a minute; fails the deploy if the
+app never comes up healthy) automatically.
 
 A few things in `azure-pipelines.yml` are specific to how this was actually
 brought up, not generic defaults — worth knowing if you copy this pattern:
@@ -169,10 +182,19 @@ notes above.
 
 - **Cost:** Container Apps scales to zero (`min_replicas = 0`) — near-$0
   when idle. Claude calls are a fraction of a cent per job at Sonnet 5
-  pricing. ACR is Basic tier; Storage and Key Vault are pay-per-use.
-- **Security:** the Anthropic API key lives only in Key Vault, read by the
-  app's user-assigned managed identity — never a plain env var, never in
-  pipeline YAML, never in git. Blob Storage access is also identity-based
+  pricing. ACR is Basic tier; Storage and Key Vault are pay-per-use. The
+  password gate (below) is the main defense against a stranger finding the
+  URL and running up Anthropic API spend on your behalf.
+- **Access:** the whole app (frontend + API, everything except `/healthz`)
+  sits behind a single shared HTTP Basic Auth password (`app/auth.py`),
+  checked against the `SITE_PASSWORD` env var with `secrets.compare_digest`
+  (constant-time, avoids a timing side-channel). If `SITE_PASSWORD` is
+  unset the gate is a no-op — this only happens in local dev, never in the
+  deployed environment where Terraform always supplies it.
+- **Security:** the Anthropic API key and site password both live only in
+  Key Vault, read by the app's user-assigned managed identity — never a
+  plain env var value baked into an image, never in pipeline YAML, never
+  in git. Blob Storage access is also identity-based
   (`DefaultAzureCredential`, no account key in the app itself). The `jobs`
   blob container is private, and a lifecycle policy auto-deletes job
   artifacts (which contain real resume content) after 2 days. CI/CD uses

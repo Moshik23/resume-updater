@@ -16,8 +16,14 @@ const summaryContent = document.getElementById("summary-content");
 const downloadLink = document.getElementById("download-link");
 const summaryDownloadLink = document.getElementById("summary-download-link");
 const checklistToggle = document.getElementById("checklist-toggle");
+const scoreBefore = document.getElementById("score-before");
+const scoreBeforeAfter = document.getElementById("score-before-after");
 
 let lastSummaryMarkdown = null;
+
+function formatScore(value) {
+  return `${Math.round(value)}%`;
+}
 
 const steps = {
   upload: document.querySelector('.step[data-step="1"]'),
@@ -206,6 +212,7 @@ uploadForm.addEventListener("submit", async (event) => {
     sourceFormat = data.source_format;
     gaps = data.gaps;
     edits = data.suggested_edits;
+    scoreBefore.textContent = formatScore(data.match_score_before);
 
     setStatus(uploadStatus, "");
     resultsSection.hidden = false;
@@ -288,6 +295,12 @@ generateButton.addEventListener("click", async () => {
       summaryDownloadLink.href = applyData.summary_download_url;
       summaryDownloadLink.hidden = false;
       summarySection.hidden = false;
+
+      if (applyData.match_score_before != null && applyData.match_score_after != null) {
+        scoreBeforeAfter.innerHTML =
+          `${formatScore(applyData.match_score_before)} → ` +
+          `<span class="score-after">${formatScore(applyData.match_score_after)}</span>`;
+      }
     }
 
     setStep("download");

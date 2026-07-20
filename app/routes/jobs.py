@@ -11,7 +11,7 @@ from app.claude_client import analyze, phrase_answer_as_bullet
 from app.models import GapAnalysis, SuggestedEdit
 from app.resume_apply import docx_inplace, docx_rebuild
 from app.resume_ingest import docx_ingest, pdf_ingest
-from app.summary import build_summary_markdown
+from app.summary import build_summary_markdown, compute_match_score
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -23,6 +23,7 @@ class JobAnalysisResponse(BaseModel):
     source_format: str
     gaps: list
     suggested_edits: list
+    match_score_before: float
 
 
 class AnswerItem(BaseModel):
@@ -88,6 +89,7 @@ async def create_job(resume: UploadFile = File(...), job_description: str = Form
         source_format=source_format,
         gaps=[g.model_dump() for g in analysis.gaps],
         suggested_edits=[e.model_dump() for e in analysis.suggested_edits],
+        match_score_before=compute_match_score(analysis),
     )
 
 
@@ -135,6 +137,8 @@ async def apply_job(job_id: str, body: ApplyRequest):
         "download_url": f"/api/jobs/{job_id}/download",
         "summary_markdown": summary_markdown,
         "summary_download_url": f"/api/jobs/{job_id}/summary",
+        "match_score_before": compute_match_score(analysis),
+        "match_score_after": compute_match_score(analysis, body.accepted_edits, failed),
     }
 
 

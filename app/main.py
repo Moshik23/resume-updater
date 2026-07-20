@@ -3,9 +3,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from app.auth import BasicAuthMiddleware
 from app.routes import health, jobs
 
 app = FastAPI(title="Resume Updater")
+
+app.add_middleware(BasicAuthMiddleware)
 
 app.include_router(health.router)
 app.include_router(jobs.router)

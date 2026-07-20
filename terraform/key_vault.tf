@@ -14,6 +14,12 @@ resource "azurerm_key_vault_secret" "anthropic_api_key" {
   key_vault_id = azurerm_key_vault.this.id
 }
 
+resource "azurerm_key_vault_secret" "site_password" {
+  name         = "site-password"
+  value        = var.site_password
+  key_vault_id = azurerm_key_vault.this.id
+}
+
 resource "azurerm_role_assignment" "app_kv_secrets_user" {
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets User"

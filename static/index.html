@@ -49,6 +49,11 @@
       </section>
 
       <section id="results-section" class="card" hidden>
+        <div class="score-row">
+          <span class="score-label">Current ATS match</span>
+          <span id="score-before" class="score-badge">—</span>
+        </div>
+
         <h2>Missing requirements</h2>
         <p id="no-gaps-message" class="empty-message" hidden>No gaps found — your resume already covers the job description well.</p>
         <div id="gaps-list"></div>
@@ -63,6 +68,11 @@
       </section>
 
       <section id="summary-section" class="card" hidden>
+        <div class="score-row score-row-comparison">
+          <span class="score-label">ATS match</span>
+          <span id="score-before-after" class="score-comparison">— → —</span>
+        </div>
+
         <div class="summary-header">
           <h2>What changed</h2>
           <label class="toggle">

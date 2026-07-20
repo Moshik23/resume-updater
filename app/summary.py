@@ -13,6 +13,20 @@ _EDIT_TYPE_LABELS = {
 }
 
 
+def _addressed_gap_requirements(
+    accepted_edits: list[SuggestedEdit], failed_edit_ids: list[str]
+) -> set[str]:
+    """Requirements actually addressed by a successfully-applied edit --
+    excludes edits that failed to apply, since those never touched the
+    resume."""
+    failed = set(failed_edit_ids)
+    return {
+        edit.related_gap
+        for edit in accepted_edits
+        if edit.related_gap and edit.edit_id not in failed
+    }
+
+
 def build_summary_markdown(
     analysis: GapAnalysis,
     accepted_edits: list[SuggestedEdit],
@@ -35,7 +49,7 @@ def build_summary_markdown(
             lines.append(f"  - Why: {edit.rationale}")
         lines.append("")
 
-    addressed_gaps = {edit.related_gap for edit in accepted_edits if edit.related_gap}
+    addressed_gaps = _addressed_gap_requirements(accepted_edits, failed_edit_ids)
     remaining_gaps = [gap for gap in analysis.gaps if gap.requirement not in addressed_gaps]
     if remaining_gaps:
         lines.append("## Still worth addressing")
@@ -54,3 +68,25 @@ def build_summary_markdown(
         lines.append("")
 
     return "\n".join(lines)
+
+
+def compute_match_score(
+    analysis: GapAnalysis,
+    accepted_edits: list[SuggestedEdit] | None = None,
+    failed_edit_ids: list[str] | None = None,
+) -> float:
+    """Percentage of extracted JD requirements the resume covers.
+
+    Call with no accepted_edits for the "before" score (requirements
+    already matched in the original resume). Pass the applied edits and
+    their failures for the "after" score.
+    """
+    total = len(analysis.extracted_requirements)
+    if total == 0:
+        return 100.0
+
+    covered = {match.requirement for match in analysis.matches}
+    if accepted_edits:
+        covered |= _addressed_gap_requirements(accepted_edits, failed_edit_ids or [])
+
+    return round(len(covered) / total * 100, 1)
