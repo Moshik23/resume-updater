@@ -23,6 +23,11 @@ summary of every change:
   comparison once the tailored resume is generated. Only counts a
   requirement as covered once an edit addressing it actually applied
   successfully — an edit that failed to apply doesn't inflate the score.
+  Suggested-edit checkboxes and any manually-edited wording persist across
+  repeated "Generate" clicks — answering one gap and regenerating doesn't
+  silently re-check or reword edits you'd already toggled or edited by hand
+  (`renderEdits()` in `static/app.js` diffs against the prior render instead
+  of rebuilding from scratch each time).
 - **Password-gated** — the whole site sits behind a single shared HTTP
   Basic Auth password (see Cost and security notes), so a stranger who
   finds the URL can't run up Anthropic API costs.

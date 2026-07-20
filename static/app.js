@@ -66,20 +66,42 @@ function renderGaps() {
 }
 
 function renderEdits() {
+  // renderEdits() is called again every time /answers responds -- including
+  // when it's a no-op resubmission of an already-answered gap (its textarea
+  // still has text in it), which happens on every subsequent "Generate"
+  // click. Rebuilding from scratch with the old default logic would silently
+  // reset every checkbox and any manually-edited wording back to defaults,
+  // undoing whatever the user had toggled. Capture the current state first
+  // and preserve it, except for edits that just transitioned out of
+  // "requires user input" this exact cycle -- those get the fresh default
+  // (checked, freshly-phrased text) the same way a first render would.
+  const previousState = new Map();
+  for (const editDiv of editsList.children) {
+    previousState.set(editDiv.dataset.editId, {
+      checked: editDiv.querySelector("input[type=checkbox]").checked,
+      wasDisabled: editDiv.querySelector("input[type=checkbox]").disabled,
+      text: editDiv.querySelector("textarea").value,
+    });
+  }
+
   editsList.innerHTML = "";
   for (const edit of edits) {
     const div = document.createElement("div");
     div.className = "edit-item";
     div.dataset.editId = edit.edit_id;
+    const prior = previousState.get(edit.edit_id);
+    const justResolved = !!(prior && prior.wasDisabled && !edit.requires_user_input);
+    const useDefault = !prior || justResolved;
     const disabled = edit.requires_user_input ? "disabled" : "";
-    const checked = edit.requires_user_input ? "" : "checked";
+    const checked = (useDefault ? !edit.requires_user_input : prior.checked) ? "checked" : "";
+    const textValue = useDefault ? edit.new_text : prior.text;
     div.innerHTML = `
       <div class="edit-header">
         <input type="checkbox" ${checked} ${disabled} />
         <strong>${edit.type.replace("_", " ")}</strong>
       </div>
       <p class="rationale">${escapeHtml(edit.rationale)}</p>
-      <textarea rows="2">${escapeHtml(edit.new_text)}</textarea>
+      <textarea rows="2">${escapeHtml(textValue)}</textarea>
     `;
     editsList.appendChild(div);
   }
