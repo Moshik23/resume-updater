@@ -2,8 +2,13 @@ trigger:
   branches:
     include: [master]
 
+# Self-hosted (not a Microsoft-hosted pool): this Azure DevOps org is new
+# and the free Microsoft-hosted parallelism grant hasn't been approved yet
+# (jobs queue indefinitely). Runs on this machine's own registered agent
+# instead, which already has az/terraform/docker installed. Switch back to
+# `vmImage: ubuntu-latest` once the hosted grant is approved, if preferred.
 pool:
-  vmImage: ubuntu-latest
+  name: Default
 
 variables:
   imageName: resume-updater-app
@@ -35,11 +40,27 @@ stages:
       - job: TerraformApply
         steps:
           - bash: |
-              TF_VERSION=1.15.8
-              curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
-              sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
-              terraform version
-            displayName: "Install Terraform (not preinstalled on ubuntu-latest)"
+              if command -v terraform >/dev/null 2>&1; then
+                echo "Terraform already installed on this agent:"
+                terraform version
+              else
+                TF_VERSION=1.15.8
+                case "$(uname -s)" in
+                  Linux*)
+                    curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+                    sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
+                    ;;
+                  MINGW*|MSYS*|CYGWIN*)
+                    curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_windows_amd64.zip"
+                    unzip -o /tmp/terraform.zip -d /usr/bin
+                    ;;
+                  *)
+                    echo "Unsupported OS for auto-install: $(uname -s)"; exit 1
+                    ;;
+                esac
+                terraform version
+              fi
+            displayName: "Install Terraform (skips if already present on this agent)"
           - task: AzureCLI@2
             displayName: "terraform apply (azurerm provider picks up az login via use_cli)"
             inputs:
