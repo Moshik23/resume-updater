@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Resume Updater</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main>
+    <h1>Resume Updater</h1>
+    <p class="subtitle">Upload your resume and a job description to get ATS-tailored suggestions.</p>
+
+    <section id="upload-section">
+      <form id="upload-form">
+        <label>
+          Resume (.docx or .pdf)
+          <input type="file" id="resume-file" accept=".docx,.pdf" required />
+        </label>
+        <label>
+          Job description
+          <textarea id="job-description" rows="10" placeholder="Paste the job description here..." required></textarea>
+        </label>
+        <button type="submit">Analyze</button>
+      </form>
+      <p id="upload-status"></p>
+    </section>
+
+    <section id="results-section" hidden>
+      <h2>Missing requirements</h2>
+      <p id="no-gaps-message" hidden>No gaps found — your resume already covers the job description well.</p>
+      <div id="gaps-list"></div>
+
+      <h2>Suggested edits</h2>
+      <div id="edits-list"></div>
+
+      <button id="generate-button">Generate tailored resume</button>
+      <p id="generate-status"></p>
+      <a id="download-link" href="#" hidden download>Download tailored resume</a>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

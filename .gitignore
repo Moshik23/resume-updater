@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+# terraform/.terraform.lock.hcl is intentionally committed (pins provider versions)
+
+# Local job artifacts (Phase 0/1 local storage fallback)
+.local_jobs/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

@@ -1,0 +1,162 @@
+"""Calls Claude to analyze a resume against a job description.
+
+Uses a forced tool-use call so the response is schema-validated by the API
+rather than hand-parsed JSON, and marks the (static) system prompt for
+prompt-caching since it's identical across every job.
+"""
+
+import json
+
+import anthropic
+
+from app.config import settings
+from app.models import ContentBlock, GapAnalysis
+
+_SYSTEM_PROMPT = """\
+You are an ATS (Applicant Tracking System) resume analyst. You are given a \
+resume broken into addressable content blocks, and a job description. Your job:
+
+1. Extract the concrete requirements from the job description (skills, tools, \
+certifications, years of experience, soft skills).
+2. For each requirement, find matching evidence in the resume's content blocks, \
+citing the block id.
+3. For requirements with no evidence in the resume, produce a gap: a short, \
+direct question to ask the candidate so they can supply the missing information \
+(e.g. "Do you have hands-on experience with X? If so, briefly describe it.").
+4. Propose suggested_edits that would improve ATS match: inserting missing \
+keywords into existing bullets (replace_phrase / insert_keyword, anchored to an \
+exact substring of the block's text), or adding a new bullet after a block \
+(append_bullet / new_bullet_after). Never invent experience the resume doesn't \
+support — edits should rephrase/surface what's already true, or be flagged with \
+requires_user_input=true and linked to a gap via related_gap so the user can \
+supply the missing fact first.
+
+Only edit paragraphs that are clearly resume content (skills, experience \
+bullets, summary) — do not touch section headers or contact information unless \
+the job description specifically requires a certification/credential line to \
+be added there.
+"""
+
+_TOOL_SCHEMA = {
+    "name": "submit_gap_analysis",
+    "description": "Submit the extracted JD requirements, resume/JD gaps, and suggested ATS-improving edits.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "extracted_requirements": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "requirement": {"type": "string"},
+                        "category": {
+                            "type": "string",
+                            "enum": ["skill", "tool", "certification", "experience", "soft_skill"],
+                        },
+                    },
+                    "required": ["requirement", "category"],
+                },
+            },
+            "matches": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "requirement": {"type": "string"},
+                        "block_id": {"type": "string"},
+                        "evidence": {"type": "string"},
+                    },
+                    "required": ["requirement", "block_id", "evidence"],
+                },
+            },
+            "gaps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "requirement": {"type": "string"},
+                        "question_to_user": {"type": "string"},
+                    },
+                    "required": ["requirement", "question_to_user"],
+                },
+            },
+            "suggested_edits": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "edit_id": {"type": "string"},
+                        "block_id": {"type": "string"},
+                        "type": {
+                            "type": "string",
+                            "enum": ["replace_phrase", "insert_keyword", "append_bullet", "new_bullet_after"],
+                        },
+                        "anchor_text": {"type": ["string", "null"]},
+                        "new_text": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "requires_user_input": {"type": "boolean"},
+                        "related_gap": {"type": ["string", "null"]},
+                    },
+                    "required": ["edit_id", "block_id", "type", "new_text", "rationale"],
+                },
+            },
+        },
+        "required": ["extracted_requirements", "matches", "gaps", "suggested_edits"],
+    },
+}
+
+
+def _client() -> anthropic.Anthropic:
+    return anthropic.Anthropic(api_key=settings.anthropic_api_key or None)
+
+
+def analyze(blocks: list[ContentBlock], job_description: str) -> GapAnalysis:
+    resume_json = json.dumps([b.model_dump() for b in blocks])
+
+    response = _client().messages.create(
+        model=settings.claude_model,
+        max_tokens=4096,
+        system=[
+            {
+                "type": "text",
+                "text": _SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        tools=[_TOOL_SCHEMA],
+        tool_choice={"type": "tool", "name": "submit_gap_analysis"},
+        messages=[
+            {
+                "role": "user",
+                "content": f"RESUME CONTENT BLOCKS (JSON):\n{resume_json}\n\nJOB DESCRIPTION:\n{job_description}",
+            }
+        ],
+    )
+
+    tool_use = next(block for block in response.content if block.type == "tool_use")
+    return GapAnalysis.model_validate(tool_use.input)
+
+
+def phrase_answer_as_bullet(gap_requirement: str, question: str, user_answer: str) -> str:
+    """Turn a raw user answer to a gap question into one well-phrased resume bullet."""
+    response = _client().messages.create(
+        model=settings.claude_model,
+        max_tokens=256,
+        system=(
+            "Turn the user's raw answer into a single, concise, resume-style bullet "
+            "point (no more than one sentence, no leading bullet character). "
+            "Only use facts the user actually stated — do not embellish."
+        ),
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Missing requirement: {gap_requirement}\n"
+                    f"Question asked: {question}\n"
+                    f"User's answer: {user_answer}"
+                ),
+            }
+        ],
+    )
+    text_block = next(block for block in response.content if block.type == "text")
+    return text_block.text.strip()

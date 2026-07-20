@@ -1,0 +1,13 @@
+Cloud Engineer (Azure Focus)
+
+We are looking for a Cloud Engineer to join our infrastructure team.
+
+Requirements:
+- 2+ years of experience with Microsoft Azure (VMs, Storage, Networking)
+- Hands-on experience with Terraform for infrastructure as code
+- Experience with CI/CD pipelines (Azure DevOps or GitHub Actions)
+- Proficiency in Python or Bash scripting
+- Experience with Docker containerization
+- AWS Certified Solutions Architect or equivalent cloud certification preferred
+- Familiarity with Kubernetes is a plus
+- Strong communication skills and ability to work in a team

@@ -1,0 +1,48 @@
+trigger:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  imageName: resume-updater-app
+  acrName: resumeupdateracr
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildAndPush
+        steps:
+          - task: AzureCLI@2
+            displayName: "az acr build (push to ACR via OIDC service connection)"
+            inputs:
+              azureSubscription: "resume-updater-arm-connection"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr build --registry $(acrName) \
+                  --image $(imageName):$(Build.SourceVersion) \
+                  --file app/Dockerfile .
+
+  - stage: Deploy
+    dependsOn: Build
+    jobs:
+      - job: TerraformApply
+        steps:
+          - task: AzureCLI@2
+            displayName: "terraform apply (azurerm provider picks up az login via use_cli)"
+            inputs:
+              azureSubscription: "resume-updater-arm-connection"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                cd terraform
+                terraform init
+                terraform apply -auto-approve \
+                  -var="container_image_tag=$(Build.SourceVersion)" \
+                  -var="anthropic_api_key=$ANTHROPIC_API_KEY"
+            env:
+              # Set ANTHROPIC_API_KEY as a secret pipeline variable in the Azure
+              # DevOps UI (Pipelines -> Edit -> Variables) -- never in this file.
+              ANTHROPIC_API_KEY: $(ANTHROPIC_API_KEY)

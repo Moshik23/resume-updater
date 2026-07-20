@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-docx
+pypdf
+anthropic
+azure-storage-blob
+azure-identity
+azure-keyvault-secrets
+pydantic-settings
+python-multipart
