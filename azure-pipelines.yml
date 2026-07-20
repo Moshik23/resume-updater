@@ -34,6 +34,12 @@ stages:
     jobs:
       - job: TerraformApply
         steps:
+          - bash: |
+              TF_VERSION=1.15.8
+              curl -fsSL -o /tmp/terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+              sudo unzip -o /tmp/terraform.zip -d /usr/local/bin
+              terraform version
+            displayName: "Install Terraform (not preinstalled on ubuntu-latest)"
           - task: AzureCLI@2
             displayName: "terraform apply (azurerm provider picks up az login via use_cli)"
             inputs:
