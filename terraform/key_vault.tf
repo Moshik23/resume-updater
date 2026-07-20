@@ -20,9 +20,12 @@ resource "azurerm_role_assignment" "app_kv_secrets_user" {
   principal_id         = azurerm_user_assigned_identity.app.principal_id
 }
 
-# Grant the deploying user/service-principal permission to write secrets.
+# Grant every principal that runs terraform (see variables.tf) permission
+# to write secrets -- explicit list, not "whoever is currently running
+# terraform", since more than one identity applies this config.
 resource "azurerm_role_assignment" "deployer_kv_secrets_officer" {
+  for_each             = toset(var.deployer_principal_ids)
   scope                = azurerm_key_vault.this.id
   role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
+  principal_id         = each.value
 }
