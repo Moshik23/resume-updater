@@ -15,6 +15,9 @@ const summarySection = document.getElementById("summary-section");
 const summaryContent = document.getElementById("summary-content");
 const downloadLink = document.getElementById("download-link");
 const summaryDownloadLink = document.getElementById("summary-download-link");
+const checklistToggle = document.getElementById("checklist-toggle");
+
+let lastSummaryMarkdown = null;
 
 const steps = {
   upload: document.querySelector('.step[data-step="1"]'),
@@ -79,13 +82,26 @@ function renderEdits() {
 // Renders the small, controlled markdown subset that app/summary.py emits
 // (# / ## headings, "- " bullets with one level of nested "  - " bullets,
 // and **bold**). Not a general-purpose markdown parser.
-function renderSummaryMarkdown(markdown) {
+//
+// When withCheckboxes is true, each top-level bullet (one applied change,
+// gap, or matched requirement) is wrapped in a checkbox label so a user
+// editing their resume by hand can tick items off as they go. Detail
+// bullets nested under a top-level item stay outside the checkbox label —
+// only the top-level item itself is checkable.
+function renderSummaryMarkdown(markdown, withCheckboxes) {
   const lines = markdown.split("\n").map((line) => line.trimEnd());
   let html = "";
   let inTopList = false;
   let inNestedList = false;
   let topItemOpen = false;
+  let topLabelOpen = false;
 
+  const closeTopLabel = () => {
+    if (topLabelOpen) {
+      html += "</span></label>";
+      topLabelOpen = false;
+    }
+  };
   const closeNestedList = () => {
     if (inNestedList) {
       html += "</ul>";
@@ -94,6 +110,7 @@ function renderSummaryMarkdown(markdown) {
   };
   const closeTopItem = () => {
     closeNestedList();
+    closeTopLabel();
     if (topItemOpen) {
       html += "</li>";
       topItemOpen = false;
@@ -123,6 +140,7 @@ function renderSummaryMarkdown(markdown) {
     const nestedMatch = line.match(/^ {2}- (.*)$/);
     const topMatch = line.match(/^- (.*)$/);
     if (nestedMatch) {
+      closeTopLabel(); // detail bullets sit outside the checkbox label
       if (!inNestedList) {
         html += "<ul>";
         inNestedList = true;
@@ -134,7 +152,12 @@ function renderSummaryMarkdown(markdown) {
         html += "<ul>";
         inTopList = true;
       }
-      html += `<li>${inlineFormat(topMatch[1])}`;
+      if (withCheckboxes) {
+        html += `<li><label class="checklist-item"><input type="checkbox" /><span>${inlineFormat(topMatch[1])}`;
+        topLabelOpen = true;
+      } else {
+        html += `<li>${inlineFormat(topMatch[1])}`;
+      }
       topItemOpen = true;
     }
   }
@@ -260,7 +283,8 @@ generateButton.addEventListener("click", async () => {
     downloadLink.hidden = false;
 
     if (applyData.summary_markdown) {
-      summaryContent.innerHTML = renderSummaryMarkdown(applyData.summary_markdown);
+      lastSummaryMarkdown = applyData.summary_markdown;
+      summaryContent.innerHTML = renderSummaryMarkdown(lastSummaryMarkdown, checklistToggle.checked);
       summaryDownloadLink.href = applyData.summary_download_url;
       summaryDownloadLink.hidden = false;
       summarySection.hidden = false;
@@ -272,5 +296,11 @@ generateButton.addEventListener("click", async () => {
     setStatus(generateStatus, err.message, "error");
   } finally {
     generateButton.disabled = false;
+  }
+});
+
+checklistToggle.addEventListener("change", () => {
+  if (lastSummaryMarkdown) {
+    summaryContent.innerHTML = renderSummaryMarkdown(lastSummaryMarkdown, checklistToggle.checked);
   }
 });

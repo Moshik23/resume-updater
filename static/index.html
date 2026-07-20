@@ -63,7 +63,14 @@
       </section>
 
       <section id="summary-section" class="card" hidden>
-        <h2>What changed</h2>
+        <div class="summary-header">
+          <h2>What changed</h2>
+          <label class="toggle">
+            <input type="checkbox" id="checklist-toggle" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Show checklist</span>
+          </label>
+        </div>
         <div id="summary-content" class="summary-content"></div>
         <div class="download-row">
           <a id="download-link" class="btn btn-primary" href="#" hidden download>Download tailored resume</a>
@@ -74,6 +81,12 @@
 
     <footer class="footer">
       <p>Your resume is processed for this session only and isn't kept longer than needed.</p>
+      <p class="credit">
+        <a href="https://github.com/Moshik23" target="_blank" rel="noopener noreferrer" class="credit-link">
+          <span class="credit-badge">MS</span>
+          Built by Moshik Seetloo
+        </a>
+      </p>
     </footer>
   </div>
   <script src="/app.js"></script>
