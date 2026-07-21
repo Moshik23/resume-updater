@@ -1,14 +1,15 @@
 import io
 import uuid
+from datetime import datetime, timezone
 
 import anthropic
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import cover_letter, storage
+from app import cover_letter, profiles, storage
 from app.claude_client import analyze, generate_cover_letter, phrase_answer_as_bullet
-from app.models import GapAnalysis, SuggestedEdit
+from app.models import GapAnalysis, SuggestedEdit, TrackerEntry
 from app.resume_apply import docx_inplace, docx_rebuild
 from app.resume_ingest import docx_ingest, pdf_ingest
 from app.summary import build_summary_markdown, compute_match_score
@@ -24,6 +25,8 @@ class JobAnalysisResponse(BaseModel):
     gaps: list
     suggested_edits: list
     match_score_before: float
+    company_name: str | None = None
+    job_title: str | None = None
 
 
 class AnswerItem(BaseModel):
@@ -39,6 +42,10 @@ class ApplyRequest(BaseModel):
     accepted_edits: list[SuggestedEdit]
     include_resume: bool = True
     include_cover_letter: bool = False
+    profile: str | None = None
+    track_application: bool = False
+    company_name: str | None = None
+    job_title: str | None = None
 
 
 def _extract_blocks(source_format: str, data: bytes):
@@ -55,14 +62,28 @@ def _load_analysis(job_id: str) -> GapAnalysis:
 
 
 @router.post("", response_model=JobAnalysisResponse)
-async def create_job(resume: UploadFile = File(...), job_description: str = Form(...)):
-    filename = resume.filename or ""
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    source_format = _SOURCE_FORMATS.get(ext)
-    if source_format is None:
-        raise HTTPException(400, "Resume must be a .docx or .pdf file")
+async def create_job(
+    profile: str = Form(...),
+    job_description: str = Form(...),
+    resume: UploadFile | None = File(None),
+):
+    if not profiles.is_valid_profile(profile):
+        raise HTTPException(400, "Unknown profile")
 
-    data = await resume.read()
+    if resume is not None:
+        filename = resume.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        source_format = _SOURCE_FORMATS.get(ext)
+        if source_format is None:
+            raise HTTPException(400, "Resume must be a .docx or .pdf file")
+        data = await resume.read()
+        profiles.save_default_resume(profile, filename, source_format, data)
+    else:
+        meta = profiles.default_resume_meta(profile)
+        if not meta["exists"]:
+            raise HTTPException(400, "No resume attached and no saved default resume for this profile")
+        data, source_format = profiles.load_default_resume(profile)
+
     job_id = uuid.uuid4().hex
 
     try:
@@ -93,6 +114,8 @@ async def create_job(resume: UploadFile = File(...), job_description: str = Form
         gaps=[g.model_dump() for g in analysis.gaps],
         suggested_edits=[e.model_dump() for e in analysis.suggested_edits],
         match_score_before=compute_match_score(analysis),
+        company_name=analysis.company_name,
+        job_title=analysis.job_title,
     )
 
 
@@ -161,6 +184,21 @@ async def apply_job(job_id: str, body: ApplyRequest):
         storage.save_bytes(job_id, "cover_letter.docx", cover_letter_output.getvalue())
 
         result["cover_letter_download_url"] = f"/api/jobs/{job_id}/download-cover-letter"
+
+    if body.track_application:
+        if not body.profile or not profiles.is_valid_profile(body.profile):
+            raise HTTPException(400, "A valid profile is required to track this application")
+        profiles.append_tracker_entry(
+            body.profile,
+            TrackerEntry(
+                job_id=job_id,
+                company_name=body.company_name,
+                job_title=body.job_title,
+                tracked_at=datetime.now(timezone.utc).isoformat(),
+                match_score_before=result.get("match_score_before"),
+                match_score_after=result.get("match_score_after"),
+            ),
+        )
 
     return result
 

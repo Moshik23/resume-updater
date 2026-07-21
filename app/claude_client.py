@@ -23,7 +23,10 @@ citing the block id.
 3. For requirements with no evidence in the resume, produce a gap: a short, \
 direct question to ask the candidate so they can supply the missing information \
 (e.g. "Do you have hands-on experience with X? If so, briefly describe it.").
-4. Propose suggested_edits that would improve ATS match: inserting missing \
+4. Identify the hiring company's name and the job title/role, if the job \
+description states them plainly. Leave either as null rather than guessing if \
+it isn't clearly stated.
+5. Propose suggested_edits that would improve ATS match: inserting missing \
 keywords into existing bullets (replace_phrase / insert_keyword, anchored to an \
 exact substring of the block's text), or adding a new bullet after a block \
 (append_bullet / new_bullet_after). Never invent experience the resume doesn't \
@@ -43,6 +46,8 @@ _TOOL_SCHEMA = {
     "input_schema": {
         "type": "object",
         "properties": {
+            "company_name": {"type": ["string", "null"]},
+            "job_title": {"type": ["string", "null"]},
             "extracted_requirements": {
                 "type": "array",
                 "items": {

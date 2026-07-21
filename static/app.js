@@ -24,10 +24,105 @@ const outputsError = document.getElementById("outputs-error");
 const generateButtonLabel = document.getElementById("generate-button-label");
 const resumeSummaryBlock = document.getElementById("resume-summary-block");
 const coverLetterDownloadLink = document.getElementById("cover-letter-download-link");
+const resumeFileInput = document.getElementById("resume-file");
+const defaultResumeNote = document.getElementById("default-resume-note");
+const viewTrackerButton = document.getElementById("view-tracker-button");
+const trackerSection = document.getElementById("tracker-section");
+const closeTrackerButton = document.getElementById("close-tracker-button");
+const trackerList = document.getElementById("tracker-list");
+const trackerEmptyMessage = document.getElementById("tracker-empty-message");
+const trackApplicationCheckbox = document.getElementById("track-application");
+const trackFields = document.getElementById("track-fields");
+const trackCompanyInput = document.getElementById("track-company");
+const trackRoleInput = document.getElementById("track-role");
 
 let lastSummaryMarkdown = null;
 let wantResume = true;
 let wantCoverLetter = false;
+let selectedProfile = null;
+let hasDefaultResume = false;
+
+const PROFILE_STORAGE_KEY = "resumeUpdaterProfile";
+
+async function onProfileChanged() {
+  localStorage.setItem(PROFILE_STORAGE_KEY, selectedProfile);
+  viewTrackerButton.hidden = false;
+
+  try {
+    const response = await fetch(`/api/profiles/${selectedProfile}/default-resume-meta`);
+    const meta = response.ok ? await response.json() : { exists: false, filename: null };
+    hasDefaultResume = meta.exists;
+    resumeFileInput.required = !hasDefaultResume;
+    if (hasDefaultResume) {
+      defaultResumeNote.textContent = `Using your saved resume: ${meta.filename} (choose a new file to replace it)`;
+      defaultResumeNote.hidden = false;
+    } else {
+      defaultResumeNote.hidden = true;
+    }
+  } catch {
+    hasDefaultResume = false;
+    resumeFileInput.required = true;
+    defaultResumeNote.hidden = true;
+  }
+}
+
+for (const radio of document.querySelectorAll('input[name="profile"]')) {
+  radio.addEventListener("change", () => {
+    selectedProfile = radio.value;
+    onProfileChanged();
+  });
+}
+
+const rememberedProfile = localStorage.getItem(PROFILE_STORAGE_KEY);
+if (rememberedProfile) {
+  const radio = document.getElementById(`profile-${rememberedProfile}`);
+  if (radio) {
+    radio.checked = true;
+    selectedProfile = rememberedProfile;
+    onProfileChanged();
+  }
+}
+
+trackApplicationCheckbox.addEventListener("change", () => {
+  trackFields.hidden = !trackApplicationCheckbox.checked;
+});
+
+function renderTracker(entries) {
+  trackerList.innerHTML = "";
+  trackerEmptyMessage.hidden = entries.length > 0;
+  for (const entry of entries) {
+    const div = document.createElement("div");
+    div.className = "tracker-item";
+    const date = new Date(entry.tracked_at).toLocaleDateString();
+    const scoreText =
+      entry.match_score_before != null && entry.match_score_after != null
+        ? `${formatScore(entry.match_score_before)} → ${formatScore(entry.match_score_after)}`
+        : "";
+    div.innerHTML = `
+      <p><strong>${escapeHtml(entry.job_title || "Unknown role")}</strong> at ${escapeHtml(entry.company_name || "Unknown company")}</p>
+      <p class="rationale">${date}${scoreText ? ` · ATS match ${scoreText}` : ""}</p>
+    `;
+    trackerList.appendChild(div);
+  }
+}
+
+viewTrackerButton.addEventListener("click", async () => {
+  if (!selectedProfile) return;
+  try {
+    const response = await fetch(`/api/profiles/${selectedProfile}/tracker`);
+    const entries = response.ok ? await response.json() : [];
+    renderTracker(entries);
+    trackerSection.hidden = false;
+    trackerSection.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch {
+    renderTracker([]);
+    trackerSection.hidden = false;
+  }
+});
+
+closeTrackerButton.addEventListener("click", () => {
+  trackerSection.hidden = true;
+});
 
 function updateGenerateButtonLabel() {
   const parts = [];
@@ -229,10 +324,13 @@ async function extractErrorMessage(response, fallback) {
 
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fileInput = document.getElementById("resume-file");
   const jobDescription = document.getElementById("job-description").value;
 
-  if (!fileInput.files.length) return;
+  if (!selectedProfile) {
+    setStatus(uploadStatus, "Select who's using this first.", "error");
+    return;
+  }
+  if (!resumeFileInput.files.length && !hasDefaultResume) return;
 
   if (!outputResume.checked && !outputCoverLetter.checked) {
     outputsError.hidden = false;
@@ -243,8 +341,11 @@ uploadForm.addEventListener("submit", async (event) => {
   wantCoverLetter = outputCoverLetter.checked;
 
   const formData = new FormData();
-  formData.append("resume", fileInput.files[0]);
+  if (resumeFileInput.files.length) {
+    formData.append("resume", resumeFileInput.files[0]);
+  }
   formData.append("job_description", jobDescription);
+  formData.append("profile", selectedProfile);
 
   setStatus(uploadStatus, "Analyzing resume against job description...");
   const submitButton = uploadForm.querySelector("button");
@@ -261,6 +362,8 @@ uploadForm.addEventListener("submit", async (event) => {
     gaps = data.gaps;
     edits = data.suggested_edits;
     scoreBefore.textContent = formatScore(data.match_score_before);
+    trackCompanyInput.value = data.company_name || "";
+    trackRoleInput.value = data.job_title || "";
 
     setStatus(uploadStatus, "");
     resultsSection.hidden = false;
@@ -329,6 +432,10 @@ generateButton.addEventListener("click", async () => {
         accepted_edits: acceptedEdits,
         include_resume: wantResume,
         include_cover_letter: wantCoverLetter,
+        profile: selectedProfile,
+        track_application: trackApplicationCheckbox.checked,
+        company_name: trackCompanyInput.value.trim() || null,
+        job_title: trackRoleInput.value.trim() || null,
       }),
     });
     if (!applyResponse.ok) {

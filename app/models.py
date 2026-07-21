@@ -43,6 +43,17 @@ class GapAnalysis(BaseModel):
     matches: list[RequirementMatch]
     gaps: list[GapQuestion]
     suggested_edits: list[SuggestedEdit]
+    company_name: str | None = None
+    job_title: str | None = None
+
+
+class TrackerEntry(BaseModel):
+    job_id: str
+    company_name: str | None = None
+    job_title: str | None = None
+    tracked_at: str
+    match_score_before: float | None = None
+    match_score_after: float | None = None
 
 
 class JobState(BaseModel):

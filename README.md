@@ -38,6 +38,27 @@ summary of every change:
   plus any facts the candidate confirmed via gap answers — same
   no-fabrication rule as resume edits. Rendered as a plain `.docx`
   (`app/cover_letter.py`) and downloadable independently of the resume.
+- **Named profiles** — this tool is shared between a small, known group of
+  people (not the general public), so instead of full sign-up/login accounts
+  there's a fixed picker: Moshik, Indhu, or Guest (`app/profiles.py`).
+  Picking a profile does two things: it remembers your last-uploaded resume
+  as your default (so you don't have to re-attach it every time — upload a
+  new file whenever you want to replace it), and it scopes an optional
+  **application tracker**. On the review step, check "Track this
+  application" (company/role are pre-filled from the job description via
+  the same Claude call that does gap analysis — left blank rather than
+  guessed if the JD doesn't state them) to log an entry viewable later via
+  "View my tracked applications". Both the default resume and the tracker
+  live in a separate `profiles` Blob container that, unlike `jobs/`, is
+  **not** on the 2-day auto-delete lifecycle — they persist until replaced.
+
+## Multi-tenancy note
+
+Profiles are a lightweight partition, not real authentication — anyone with
+the shared site password can pick any profile. This only works because it's
+shared with a small, known group of people. Don't extend this pattern to a
+publicly-signed-up user base without adding real per-user auth (this was an
+explicit, deliberate scope decision, not an oversight).
 
 ## Architecture
 

@@ -532,6 +532,64 @@ input[type="checkbox"] {
   margin-top: 1.5rem;
 }
 
+/* Profiles + tracker */
+
+#profile-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+#profile-section .outputs-fieldset {
+  gap: 1.25rem;
+}
+
+.track-option {
+  margin-top: 1.25rem;
+}
+
+.track-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.track-fields label {
+  flex: 1 1 200px;
+}
+
+.track-fields input[type="text"] {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.track-fields input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.tracker-item {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface-2);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 0.75rem;
+}
+
+.tracker-item p {
+  margin: 0.25rem 0;
+  font-size: 0.92rem;
+}
+
 /* Footer */
 
 .footer {

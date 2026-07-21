@@ -13,6 +13,15 @@ resource "azurerm_storage_container" "jobs" {
   container_access_type = "private"
 }
 
+# Persistent, per-named-profile data (default resume + application tracker).
+# Deliberately not covered by the "jobs/" lifecycle rule below -- unlike
+# ephemeral job artifacts, this is meant to stick around across sessions.
+resource "azurerm_storage_container" "profiles" {
+  name                  = "profiles"
+  storage_account_id    = azurerm_storage_account.this.id
+  container_access_type = "private"
+}
+
 # Auto-delete job artifacts (resume content is personal data) after ~2 days.
 resource "azurerm_storage_management_policy" "cleanup" {
   storage_account_id = azurerm_storage_account.this.id

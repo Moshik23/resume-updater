@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     azure_storage_account_name: str | None = None
     local_storage_dir: str = ".local_jobs"
+    local_profiles_dir: str = ".local_profiles"
 
 
 settings = Settings()

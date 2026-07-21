@@ -33,11 +33,40 @@
     </nav>
 
     <main>
+      <section id="profile-section" class="card">
+        <fieldset class="outputs-fieldset">
+          <legend class="label-text">Who's using this?</legend>
+          <label class="checkbox-option">
+            <input type="radio" name="profile" id="profile-moshik" value="moshik" />
+            <span>Moshik</span>
+          </label>
+          <label class="checkbox-option">
+            <input type="radio" name="profile" id="profile-indhu" value="indhu" />
+            <span>Indhu</span>
+          </label>
+          <label class="checkbox-option">
+            <input type="radio" name="profile" id="profile-guest" value="guest" />
+            <span>Guest</span>
+          </label>
+        </fieldset>
+        <button type="button" id="view-tracker-button" class="btn btn-secondary" hidden>View my tracked applications</button>
+      </section>
+
+      <section id="tracker-section" class="card" hidden>
+        <div class="summary-header">
+          <h2>Tracked applications</h2>
+          <button type="button" id="close-tracker-button" class="btn btn-secondary">Close</button>
+        </div>
+        <p id="tracker-empty-message" class="empty-message" hidden>No tracked applications yet.</p>
+        <div id="tracker-list"></div>
+      </section>
+
       <section id="upload-section" class="card">
         <form id="upload-form">
           <label>
             <span class="label-text">Resume</span>
-            <span class="label-hint">.docx or .pdf</span>
+            <span id="default-resume-note" class="label-hint" hidden></span>
+            <span id="resume-file-hint" class="label-hint">.docx or .pdf</span>
             <input type="file" id="resume-file" accept=".docx,.pdf" required />
           </label>
           <label>
@@ -76,6 +105,21 @@
         <h2>Suggested edits</h2>
         <div id="edits-list"></div>
 
+        <label class="checkbox-option track-option">
+          <input type="checkbox" id="track-application" />
+          <span>Track this application</span>
+        </label>
+        <div id="track-fields" class="track-fields" hidden>
+          <label>
+            <span class="label-text">Company</span>
+            <input type="text" id="track-company" placeholder="Company name" />
+          </label>
+          <label>
+            <span class="label-text">Role</span>
+            <input type="text" id="track-role" placeholder="Job title" />
+          </label>
+        </div>
+
         <button id="generate-button" class="btn btn-primary">
           <span id="generate-button-label" class="btn-label">Generate tailored resume</span>
         </button>
@@ -108,7 +152,7 @@
     </main>
 
     <footer class="footer">
-      <p>Your resume is processed for this session only and isn't kept longer than needed.</p>
+      <p>Each job's working files are deleted after 2 days. Your saved default resume and tracked applications are kept until you replace or clear them.</p>
       <p class="credit">
         <a href="https://github.com/Moshik23" target="_blank" rel="noopener noreferrer" class="credit-link">
           <span class="credit-badge">MS</span>
