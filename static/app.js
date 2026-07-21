@@ -18,8 +18,26 @@ const summaryDownloadLink = document.getElementById("summary-download-link");
 const checklistToggle = document.getElementById("checklist-toggle");
 const scoreBefore = document.getElementById("score-before");
 const scoreBeforeAfter = document.getElementById("score-before-after");
+const outputResume = document.getElementById("output-resume");
+const outputCoverLetter = document.getElementById("output-cover-letter");
+const outputsError = document.getElementById("outputs-error");
+const generateButtonLabel = document.getElementById("generate-button-label");
+const resumeSummaryBlock = document.getElementById("resume-summary-block");
+const coverLetterDownloadLink = document.getElementById("cover-letter-download-link");
 
 let lastSummaryMarkdown = null;
+let wantResume = true;
+let wantCoverLetter = false;
+
+function updateGenerateButtonLabel() {
+  const parts = [];
+  if (outputResume.checked) parts.push("tailored resume");
+  if (outputCoverLetter.checked) parts.push("cover letter");
+  generateButtonLabel.textContent = parts.length ? `Generate ${parts.join(" & ")}` : "Generate";
+}
+outputResume.addEventListener("change", updateGenerateButtonLabel);
+outputCoverLetter.addEventListener("change", updateGenerateButtonLabel);
+updateGenerateButtonLabel();
 
 function formatScore(value) {
   return `${Math.round(value)}%`;
@@ -216,6 +234,14 @@ uploadForm.addEventListener("submit", async (event) => {
 
   if (!fileInput.files.length) return;
 
+  if (!outputResume.checked && !outputCoverLetter.checked) {
+    outputsError.hidden = false;
+    return;
+  }
+  outputsError.hidden = true;
+  wantResume = outputResume.checked;
+  wantCoverLetter = outputCoverLetter.checked;
+
   const formData = new FormData();
   formData.append("resume", fileInput.files[0]);
   formData.append("job_description", jobDescription);
@@ -253,6 +279,7 @@ generateButton.addEventListener("click", async () => {
   generateButton.disabled = true;
   summarySection.hidden = true;
   downloadLink.hidden = true;
+  coverLetterDownloadLink.hidden = true;
   summaryDownloadLink.hidden = true;
   setStatus(generateStatus, "Submitting answers...");
 
@@ -279,7 +306,11 @@ generateButton.addEventListener("click", async () => {
       renderEdits();
     }
 
-    setStatus(generateStatus, "Generating tailored resume...");
+    setStatus(generateStatus, wantCoverLetter && wantResume
+      ? "Generating tailored resume and cover letter..."
+      : wantCoverLetter
+        ? "Generating cover letter..."
+        : "Generating tailored resume...");
 
     const acceptedEdits = [];
     for (const editDiv of editsList.children) {
@@ -294,29 +325,39 @@ generateButton.addEventListener("click", async () => {
     const applyResponse = await fetch(`/api/jobs/${jobId}/apply`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accepted_edits: acceptedEdits }),
+      body: JSON.stringify({
+        accepted_edits: acceptedEdits,
+        include_resume: wantResume,
+        include_cover_letter: wantCoverLetter,
+      }),
     });
     if (!applyResponse.ok) {
-      throw new Error(await extractErrorMessage(applyResponse, "Generating resume failed"));
+      throw new Error(await extractErrorMessage(applyResponse, "Generating failed"));
     }
     const applyData = await applyResponse.json();
 
     setStatus(
       generateStatus,
-      applyData.failed_edit_ids.length > 0
+      applyData.failed_edit_ids && applyData.failed_edit_ids.length > 0
         ? `Done, with ${applyData.failed_edit_ids.length} edit(s) that couldn't be applied automatically — see the summary below.`
         : "Done.",
       "success",
     );
-    downloadLink.href = applyData.download_url;
-    downloadLink.hidden = false;
+
+    if (applyData.download_url) {
+      downloadLink.href = applyData.download_url;
+      downloadLink.hidden = false;
+    }
+    if (applyData.cover_letter_download_url) {
+      coverLetterDownloadLink.href = applyData.cover_letter_download_url;
+      coverLetterDownloadLink.hidden = false;
+    }
 
     if (applyData.summary_markdown) {
       lastSummaryMarkdown = applyData.summary_markdown;
       summaryContent.innerHTML = renderSummaryMarkdown(lastSummaryMarkdown, checklistToggle.checked);
       summaryDownloadLink.href = applyData.summary_download_url;
       summaryDownloadLink.hidden = false;
-      summarySection.hidden = false;
 
       if (applyData.match_score_before != null && applyData.match_score_after != null) {
         scoreBeforeAfter.innerHTML =
@@ -324,6 +365,8 @@ generateButton.addEventListener("click", async () => {
           `<span class="score-after">${formatScore(applyData.match_score_after)}</span>`;
       }
     }
+    resumeSummaryBlock.hidden = !applyData.summary_markdown;
+    summarySection.hidden = false;
 
     setStep("download");
     summarySection.scrollIntoView({ behavior: "smooth", block: "start" });

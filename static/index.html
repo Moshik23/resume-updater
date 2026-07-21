@@ -44,6 +44,18 @@
             <span class="label-text">Job description</span>
             <textarea id="job-description" rows="10" placeholder="Paste the job description here..." required></textarea>
           </label>
+          <fieldset class="outputs-fieldset">
+            <legend class="label-text">What do you need?</legend>
+            <label class="checkbox-option">
+              <input type="checkbox" id="output-resume" checked />
+              <span>Tailored resume</span>
+            </label>
+            <label class="checkbox-option">
+              <input type="checkbox" id="output-cover-letter" />
+              <span>Cover letter</span>
+            </label>
+          </fieldset>
+          <p id="outputs-error" class="status" data-state="error" hidden>Select at least one: tailored resume or cover letter.</p>
           <button type="submit" class="btn btn-primary">
             <span class="btn-label">Analyze</span>
           </button>
@@ -65,28 +77,31 @@
         <div id="edits-list"></div>
 
         <button id="generate-button" class="btn btn-primary">
-          <span class="btn-label">Generate tailored resume</span>
+          <span id="generate-button-label" class="btn-label">Generate tailored resume</span>
         </button>
         <p id="generate-status" class="status"></p>
       </section>
 
       <section id="summary-section" class="card" hidden>
-        <div class="score-row score-row-comparison">
-          <span class="score-label">ATS match</span>
-          <span id="score-before-after" class="score-comparison">— → —</span>
-        </div>
+        <div id="resume-summary-block">
+          <div class="score-row score-row-comparison">
+            <span class="score-label">ATS match</span>
+            <span id="score-before-after" class="score-comparison">— → —</span>
+          </div>
 
-        <div class="summary-header">
-          <h2>What changed</h2>
-          <label class="toggle">
-            <input type="checkbox" id="checklist-toggle" />
-            <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span class="toggle-label">Show checklist</span>
-          </label>
+          <div class="summary-header">
+            <h2>What changed</h2>
+            <label class="toggle">
+              <input type="checkbox" id="checklist-toggle" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">Show checklist</span>
+            </label>
+          </div>
+          <div id="summary-content" class="summary-content"></div>
         </div>
-        <div id="summary-content" class="summary-content"></div>
         <div class="download-row">
           <a id="download-link" class="btn btn-primary" href="#" hidden download>Download tailored resume</a>
+          <a id="cover-letter-download-link" class="btn btn-primary" href="#" hidden download>Download cover letter</a>
           <a id="summary-download-link" class="btn btn-secondary" href="#" hidden download>Download summary (.md)</a>
         </div>
       </section>

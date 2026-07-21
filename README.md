@@ -31,6 +31,13 @@ summary of every change:
 - **Password-gated** — the whole site sits behind a single shared HTTP
   Basic Auth password (see Cost and security notes), so a stranger who
   finds the URL can't run up Anthropic API costs.
+- **Optional cover letter** — on the upload page, choose whether you want a
+  tailored resume, a cover letter, or both (at least one is required). The
+  cover letter is a separate Claude call (`generate_cover_letter` in
+  `app/claude_client.py`) grounded only in the resume's own content blocks
+  plus any facts the candidate confirmed via gap answers — same
+  no-fabrication rule as resume edits. Rendered as a plain `.docx`
+  (`app/cover_letter.py`) and downloadable independently of the resume.
 
 ## Architecture
 

@@ -160,3 +160,41 @@ def phrase_answer_as_bullet(gap_requirement: str, question: str, user_answer: st
     )
     text_block = next(block for block in response.content if block.type == "text")
     return text_block.text.strip()
+
+
+_COVER_LETTER_SYSTEM_PROMPT = """\
+You write concise, professional cover letters. You are given a candidate's \
+resume content blocks and a job description. Write a cover letter (3-4 short \
+paragraphs, no more than ~300 words) that connects the candidate's real, \
+stated experience to the job's requirements.
+
+Rules:
+- Only use facts present in the resume content blocks — never invent \
+experience, employers, dates, or skills.
+- Address it "Dear Hiring Manager," unless the job description names an \
+actual hiring manager or recruiter.
+- No placeholder brackets (e.g. "[Company Name]") — if you don't know a \
+detail, omit the sentence rather than leaving a placeholder.
+- Plain text output: paragraphs separated by a single blank line, no \
+markdown formatting, no subject line, no signature block beyond "Sincerely,".
+"""
+
+
+def generate_cover_letter(
+    blocks: list[ContentBlock], job_description: str, accepted_edits: list | None = None
+) -> str:
+    resume_json = json.dumps([b.model_dump() for b in blocks])
+    accepted_facts = "\n".join(f"- {e.new_text}" for e in (accepted_edits or []))
+
+    user_content = f"RESUME CONTENT BLOCKS (JSON):\n{resume_json}\n\nJOB DESCRIPTION:\n{job_description}"
+    if accepted_facts:
+        user_content += f"\n\nADDITIONAL CONFIRMED FACTS (from candidate's own answers):\n{accepted_facts}"
+
+    response = _client().messages.create(
+        model=settings.claude_model,
+        max_tokens=1024,
+        system=_COVER_LETTER_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    text_block = next(block for block in response.content if block.type == "text")
+    return text_block.text.strip()

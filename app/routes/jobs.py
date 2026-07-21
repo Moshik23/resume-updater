@@ -6,8 +6,8 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import storage
-from app.claude_client import analyze, phrase_answer_as_bullet
+from app import cover_letter, storage
+from app.claude_client import analyze, generate_cover_letter, phrase_answer_as_bullet
 from app.models import GapAnalysis, SuggestedEdit
 from app.resume_apply import docx_inplace, docx_rebuild
 from app.resume_ingest import docx_ingest, pdf_ingest
@@ -37,6 +37,8 @@ class AnswersRequest(BaseModel):
 
 class ApplyRequest(BaseModel):
     accepted_edits: list[SuggestedEdit]
+    include_resume: bool = True
+    include_cover_letter: bool = False
 
 
 def _extract_blocks(source_format: str, data: bytes):
@@ -83,6 +85,7 @@ async def create_job(resume: UploadFile = File(...), job_description: str = Form
     storage.save_bytes(job_id, f"original.{source_format}", data)
     storage.save_bytes(job_id, "source_format.txt", source_format.encode("utf-8"))
     storage.save_bytes(job_id, "analysis.json", analysis.model_dump_json().encode("utf-8"))
+    storage.save_bytes(job_id, "job_description.txt", job_description.encode("utf-8"))
 
     return JobAnalysisResponse(
         job_id=job_id,
@@ -114,32 +117,52 @@ async def submit_answers(job_id: str, body: AnswersRequest):
 async def apply_job(job_id: str, body: ApplyRequest):
     if not storage.exists(job_id, "source_format.txt"):
         raise HTTPException(404, "Unknown job_id")
+    if not body.include_resume and not body.include_cover_letter:
+        raise HTTPException(400, "Select at least one of: tailored resume, cover letter")
 
     source_format = storage.load_bytes(job_id, "source_format.txt").decode("utf-8")
     original = storage.load_bytes(job_id, f"original.{source_format}")
-
-    output = io.BytesIO()
-    if source_format == "docx":
-        failed = docx_inplace.apply_edits(io.BytesIO(original), body.accepted_edits, output)
-    else:
-        blocks = pdf_ingest.extract(io.BytesIO(original))
-        failed = docx_rebuild.build(blocks, body.accepted_edits, output)
-
-    storage.save_bytes(job_id, "final.docx", output.getvalue())
-
     analysis = _load_analysis(job_id)
-    summary_markdown = build_summary_markdown(analysis, body.accepted_edits, failed)
-    storage.save_bytes(job_id, "summary.md", summary_markdown.encode("utf-8"))
 
-    return {
-        "job_id": job_id,
-        "failed_edit_ids": failed,
-        "download_url": f"/api/jobs/{job_id}/download",
-        "summary_markdown": summary_markdown,
-        "summary_download_url": f"/api/jobs/{job_id}/summary",
-        "match_score_before": compute_match_score(analysis),
-        "match_score_after": compute_match_score(analysis, body.accepted_edits, failed),
-    }
+    result: dict = {"job_id": job_id}
+
+    if body.include_resume:
+        output = io.BytesIO()
+        if source_format == "docx":
+            failed = docx_inplace.apply_edits(io.BytesIO(original), body.accepted_edits, output)
+        else:
+            blocks = pdf_ingest.extract(io.BytesIO(original))
+            failed = docx_rebuild.build(blocks, body.accepted_edits, output)
+
+        storage.save_bytes(job_id, "final.docx", output.getvalue())
+
+        summary_markdown = build_summary_markdown(analysis, body.accepted_edits, failed)
+        storage.save_bytes(job_id, "summary.md", summary_markdown.encode("utf-8"))
+
+        result.update(
+            failed_edit_ids=failed,
+            download_url=f"/api/jobs/{job_id}/download",
+            summary_markdown=summary_markdown,
+            summary_download_url=f"/api/jobs/{job_id}/summary",
+            match_score_before=compute_match_score(analysis),
+            match_score_after=compute_match_score(analysis, body.accepted_edits, failed),
+        )
+
+    if body.include_cover_letter:
+        job_description = storage.load_bytes(job_id, "job_description.txt").decode("utf-8")
+        blocks = _extract_blocks(source_format, original)
+        try:
+            cover_letter_text = generate_cover_letter(blocks, job_description, body.accepted_edits)
+        except anthropic.APIError as exc:
+            raise HTTPException(502, f"The AI cover letter service failed: {exc.message}") from exc
+
+        cover_letter_output = io.BytesIO()
+        cover_letter.render_docx(cover_letter_text, cover_letter_output)
+        storage.save_bytes(job_id, "cover_letter.docx", cover_letter_output.getvalue())
+
+        result["cover_letter_download_url"] = f"/api/jobs/{job_id}/download-cover-letter"
+
+    return result
 
 
 @router.get("/{job_id}/download")
@@ -151,6 +174,18 @@ async def download_job(job_id: str):
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": 'attachment; filename="tailored_resume.docx"'},
+    )
+
+
+@router.get("/{job_id}/download-cover-letter")
+async def download_cover_letter(job_id: str):
+    if not storage.exists(job_id, "cover_letter.docx"):
+        raise HTTPException(404, "No cover letter for this job_id yet")
+    data = storage.load_bytes(job_id, "cover_letter.docx")
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="cover_letter.docx"'},
     )
 
 

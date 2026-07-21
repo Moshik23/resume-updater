@@ -239,6 +239,31 @@ input[type="file"]:focus {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.outputs-fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.outputs-fieldset legend {
+  width: 100%;
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0;
+  margin-bottom: 0.2rem;
+}
+
+.checkbox-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
 /* Buttons */
 
 .btn {
