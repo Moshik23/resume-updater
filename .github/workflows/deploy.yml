@@ -64,7 +64,7 @@ jobs:
       - name: Check the package loads
         run: |
           cd /tmp && PYTHONPATH="$GITHUB_WORKSPACE/build" RESUME_TAILOR_SKIP_SSM=1 SSM_PREFIX=/check \
-            python -I -c "import app.lambda_handler; print('package OK')"
+            python -c "import app.lambda_handler; print('package OK')"
 
       # No stored AWS keys: assumes resume-tailor-github-deploy via OIDC
       # (terraform/github-oidc.tf), which can only update this one function's code.
