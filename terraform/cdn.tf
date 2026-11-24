@@ -64,10 +64,7 @@ resource "aws_cloudfront_distribution" "app" {
     cache_policy_id          = aws_cloudfront_cache_policy.app.id
     origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" # Managed-AllViewerExceptHostHeader
 
-    function_association {
-      event_type   = "viewer-response"
-      function_arn = aws_cloudfront_function.auth_challenge.arn
-    }
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.auth_challenge.id
   }
 
   restrictions {
@@ -87,20 +84,19 @@ resource "aws_cloudfront_distribution" "app" {
 # Lambda function URLs rename a WWW-Authenticate response header (to
 # x-amzn-Remapped-WWW-Authenticate), so the app's 401 reached the browser
 # without it and Chrome showed "HTTP ERROR 401" instead of the login box.
-# Put the challenge back at the edge on every 401.
-resource "aws_cloudfront_function" "auth_challenge" {
+# A viewer-response CloudFront function can't fix that: CloudFront doesn't run
+# it on 401s that come from the origin. A response headers policy does apply to
+# them, so it puts the challenge back. Browsers only act on WWW-Authenticate
+# when the status is 401, so sending it on every response is harmless.
+resource "aws_cloudfront_response_headers_policy" "auth_challenge" {
   name    = "${local.name}-auth-challenge"
-  runtime = "cloudfront-js-2.0"
-  comment = "Restore the Basic Auth challenge on 401 responses"
-  publish = true
-  code    = <<-EOT
-    function handler(event) {
-      var response = event.response;
-      if (response.statusCode === 401) {
-        response.headers['www-authenticate'] = { value: 'Basic realm="Resume Tailor", charset="UTF-8"' };
-        delete response.headers['x-amzn-remapped-www-authenticate'];
-      }
-      return response;
+  comment = "Restore the Basic Auth challenge that Lambda function URLs rename"
+
+  custom_headers_config {
+    items {
+      header   = "WWW-Authenticate"
+      value    = "Basic realm=\"Resume Tailor\", charset=\"UTF-8\""
+      override = true
     }
-  EOT
+  }
 }
