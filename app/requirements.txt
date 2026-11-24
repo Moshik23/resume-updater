@@ -3,8 +3,8 @@ uvicorn[standard]
 python-docx
 pypdf
 anthropic
-azure-storage-blob
-azure-identity
-azure-keyvault-secrets
 pydantic-settings
 python-multipart
+mangum
+# boto3 is provided by the AWS Lambda Python runtime; install it yourself
+# (pip install boto3) only if you point a local run at S3/SSM.

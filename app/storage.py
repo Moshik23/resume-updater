@@ -1,27 +1,30 @@
-"""Job artifact storage: Azure Blob Storage when configured, a local temp
-directory otherwise (so Phase 0/1 development needs zero Azure dependency).
+"""Job artifact storage: Amazon S3 when configured, a local directory otherwise
+(so local development needs zero cloud dependency).
 
-Two containers: `jobs` (ephemeral -- 2-day lifecycle-deleted job artifacts,
-see terraform/storage.tf) and `profiles` (persistent -- per-named-profile
-default resume + application tracker, never auto-deleted).
+Two prefixes in one bucket: `jobs/` (ephemeral -- expired after 2 days by an
+S3 lifecycle rule, see terraform/storage.tf) and `profiles/` (persistent --
+per-named-profile default resume + application tracker, never auto-deleted).
 """
 
+from functools import lru_cache
 from pathlib import Path
 
 from app.config import settings
 
 
-def _use_azure() -> bool:
-    return bool(settings.azure_storage_account_name)
+def _use_s3() -> bool:
+    return bool(settings.s3_bucket_name)
 
 
-def _blob_client(container: str, path: str):
-    from azure.identity import DefaultAzureCredential
-    from azure.storage.blob import BlobServiceClient
+@lru_cache(maxsize=1)
+def _s3():
+    import boto3  # provided by the Lambda runtime
 
-    account_url = f"https://{settings.azure_storage_account_name}.blob.core.windows.net"
-    service = BlobServiceClient(account_url=account_url, credential=DefaultAzureCredential())
-    return service.get_blob_client(container=container, blob=path)
+    return boto3.client("s3")
+
+
+def _key(container: str, path: str) -> str:
+    return f"{container}/{path}"
 
 
 def _local_root(container: str) -> Path:
@@ -35,21 +38,30 @@ def _local_path(container: str, path: str) -> Path:
 
 
 def _save(container: str, path: str, data: bytes) -> None:
-    if _use_azure():
-        _blob_client(container, path).upload_blob(data, overwrite=True)
+    if _use_s3():
+        _s3().put_object(Bucket=settings.s3_bucket_name, Key=_key(container, path), Body=data)
     else:
         _local_path(container, path).write_bytes(data)
 
 
 def _load(container: str, path: str) -> bytes:
-    if _use_azure():
-        return _blob_client(container, path).download_blob().readall()
+    if _use_s3():
+        obj = _s3().get_object(Bucket=settings.s3_bucket_name, Key=_key(container, path))
+        return obj["Body"].read()
     return _local_path(container, path).read_bytes()
 
 
 def _exists(container: str, path: str) -> bool:
-    if _use_azure():
-        return _blob_client(container, path).exists()
+    if _use_s3():
+        from botocore.exceptions import ClientError
+
+        try:
+            _s3().head_object(Bucket=settings.s3_bucket_name, Key=_key(container, path))
+            return True
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
     return _local_path(container, path).exists()
 
 

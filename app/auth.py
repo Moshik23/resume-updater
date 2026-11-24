@@ -4,6 +4,11 @@ A single, shared HTTP Basic Auth password protects every route except
 /healthz (which the CI/CD pipeline's post-deploy smoke test hits without
 credentials). If SITE_PASSWORD isn't set (local dev), the gate is a no-op
 so local development never needs a password.
+
+On AWS, CloudFront adds a secret x-origin-secret header to every request it
+forwards. When ORIGIN_SECRET is set, requests without it (i.e. anyone calling
+the Lambda function URL directly instead of going through CloudFront) are
+rejected before the password check -- /healthz included.
 """
 
 import base64
@@ -34,6 +39,11 @@ def _extract_password(auth_header: str | None) -> str | None:
 
 class BasicAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        if settings.origin_secret and not secrets.compare_digest(
+            request.headers.get("x-origin-secret", ""), settings.origin_secret
+        ):
+            return Response(status_code=403)
+
         if not settings.site_password or request.url.path in _EXCLUDED_PATHS:
             return await call_next(request)
 

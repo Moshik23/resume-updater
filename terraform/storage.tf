@@ -1,50 +1,67 @@
-resource "azurerm_storage_account" "this" {
-  name                     = "resumeupdaterstorage"
-  resource_group_name      = azurerm_resource_group.this.name
-  location                 = azurerm_resource_group.this.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  min_tls_version          = "TLS1_2"
+# One private bucket: jobs/ (deleted after 2 days) and profiles/ (kept)
+resource "aws_s3_bucket" "data" {
+  bucket = "${local.name}-data-${data.aws_caller_identity.current.account_id}"
 }
 
-resource "azurerm_storage_container" "jobs" {
-  name                  = "jobs"
-  storage_account_id    = azurerm_storage_account.this.id
-  container_access_type = "private"
+resource "aws_s3_bucket_public_access_block" "data" {
+  bucket                  = aws_s3_bucket.data.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
-# Persistent, per-named-profile data (default resume + application tracker).
-# Deliberately not covered by the "jobs/" lifecycle rule below -- unlike
-# ephemeral job artifacts, this is meant to stick around across sessions.
-resource "azurerm_storage_container" "profiles" {
-  name                  = "profiles"
-  storage_account_id    = azurerm_storage_account.this.id
-  container_access_type = "private"
-}
-
-# Auto-delete job artifacts (resume content is personal data) after ~2 days.
-resource "azurerm_storage_management_policy" "cleanup" {
-  storage_account_id = azurerm_storage_account.this.id
-
+resource "aws_s3_bucket_ownership_controls" "data" {
+  bucket = aws_s3_bucket.data.id
   rule {
-    name    = "expire-job-artifacts"
-    enabled = true
+    object_ownership = "BucketOwnerEnforced"
+  }
+}
 
-    filters {
-      blob_types   = ["blockBlob"]
-      prefix_match = ["jobs/"]
-    }
-
-    actions {
-      base_blob {
-        delete_after_days_since_modification_greater_than = 2
-      }
+resource "aws_s3_bucket_server_side_encryption_configuration" "data" {
+  bucket = aws_s3_bucket.data.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
     }
   }
 }
 
-resource "azurerm_role_assignment" "app_blob_contributor" {
-  scope                = azurerm_storage_account.this.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.app.principal_id
+# Versioning so a replaced default resume or tracker can be recovered for 30 days
+resource "aws_s3_bucket_versioning" "data" {
+  bucket = aws_s3_bucket.data.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "data" {
+  bucket     = aws_s3_bucket.data.id
+  depends_on = [aws_s3_bucket_versioning.data]
+
+  rule {
+    id     = "expire-job-artifacts"
+    status = "Enabled"
+    filter {
+      prefix = "jobs/"
+    }
+    expiration {
+      days = 2
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
+
+  rule {
+    id     = "tidy-old-versions"
+    status = "Enabled"
+    filter {}
+    noncurrent_version_expiration {
+      noncurrent_days = 30
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
 }

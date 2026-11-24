@@ -322,6 +322,27 @@ async function extractErrorMessage(response, fallback) {
   return `${fallback} (${response.status})`;
 }
 
+// Analysis runs in the background on the server (a long resume can take
+// longer than the CDN will hold a request open), so submitting returns a
+// job id straight away and we check back every few seconds.
+const POLL_INTERVAL_MS = 3000;
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function waitForAnalysis(jobIdToPoll) {
+  const started = Date.now();
+  while (Date.now() - started < POLL_TIMEOUT_MS) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    const response = await fetch(`/api/jobs/${jobIdToPoll}`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(await extractErrorMessage(response, "Analysis failed"));
+    }
+    const body = await response.json();
+    if (body.status === "done") return body;
+    if (body.status === "error") throw new Error(body.detail || "Analysis failed");
+  }
+  throw new Error("This is taking longer than expected. Please try again.");
+}
+
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const jobDescription = document.getElementById("job-description").value;
@@ -356,7 +377,8 @@ uploadForm.addEventListener("submit", async (event) => {
     if (!response.ok) {
       throw new Error(await extractErrorMessage(response, "Analysis failed"));
     }
-    const data = await response.json();
+    const accepted = await response.json();
+    const data = await waitForAnalysis(accepted.job_id);
     jobId = data.job_id;
     sourceFormat = data.source_format;
     gaps = data.gaps;
