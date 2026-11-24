@@ -145,7 +145,7 @@ def analyze(blocks: list[ContentBlock], job_description: str) -> GapAnalysis:
 def phrase_answer_as_bullet(gap_requirement: str, question: str, user_answer: str) -> str:
     """Turn a raw user answer to a gap question into one well-phrased resume bullet."""
     response = _client().messages.create(
-        model=settings.claude_model,
+        model=settings.claude_fast_model,
         max_tokens=256,
         system=(
             "Turn the user's raw answer into a single, concise, resume-style bullet "

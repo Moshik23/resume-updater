@@ -1,6 +1,7 @@
-# Resume Updater
+# Resume Tailor
 
-Upload a resume (.docx or .pdf) and paste a job description. The tool asks
+Live at https://resume.moshikseetloo.com (password-protected). Upload a
+resume (.docx or .pdf) and paste a job description, or a link to one. The tool asks
 Claude to find ATS-relevant keywords the resume is missing, flags real gaps
 as follow-up questions, and produces a tailored `.docx` plus a plain-English
 summary of every change:
@@ -28,34 +29,43 @@ summary of every change:
   silently re-check or reword edits you'd already toggled or edited by hand
   (`renderEdits()` in `static/app.js` diffs against the prior render instead
   of rebuilding from scratch each time).
-- **Password-gated** — the whole site sits behind a single shared HTTP
-  Basic Auth password (see Cost and security notes), so a stranger who
-  finds the URL can't run up Anthropic API costs.
-- **Optional cover letter** — on the upload page, choose whether you want a
-  tailored resume, a cover letter, or both (at least one is required). The
-  cover letter is a separate Claude call (`generate_cover_letter` in
-  `app/claude_client.py`) grounded only in the resume's own content blocks
-  plus any facts the candidate confirmed via gap answers — same
-  no-fabrication rule as resume edits. Rendered as a plain `.docx`
-  (`app/cover_letter.py`) and downloadable independently of the resume.
-- **Named profiles** — this tool is shared between a small, known group of
-  people (not the general public), so instead of full sign-up/login accounts
-  there's a fixed picker: Moshik, Indhu, or Guest (`app/profiles.py`).
-  Picking a profile does two things: it remembers your last-uploaded resume
-  as your default (so you don't have to re-attach it every time — upload a
-  new file whenever you want to replace it), and it scopes an optional
-  **application tracker**. On the review step, check "Track this
-  application" (company/role are pre-filled from the job description via
-  the same Claude call that does gap analysis — left blank rather than
-  guessed if the JD doesn't state them) to log an entry viewable later via
-  "View my tracked applications". Both the default resume and the tracker
-  live in a separate `profiles` Blob container that, unlike `jobs/`, is
-  **not** on the 2-day auto-delete lifecycle — they persist until replaced.
+- **Review on the resume itself** — suggested edits are drawn as editor's
+  marks on a preview of your resume (old wording struck through, new
+  wording highlighted, numbered pins). Tap a mark or its switch to keep or
+  skip it, edit the wording, and the ATS match score updates live. Gap
+  questions sit above; answering one turns it into a new marked bullet
+  before anything is written.
+- **Job links** — paste a careers-page, Greenhouse/Lever/Workday/Ashby or
+  MyCareersFuture link and the ad is pulled in (`app/job_fetch.py`: schema.org
+  JobPosting data first, MyCareersFuture's public API, then the page's main
+  text). Login-walled sites like LinkedIn get a clear "paste it instead"
+  message rather than being scraped. The fetcher only follows https links to
+  public addresses (re-checked on every redirect), with a 10 s timeout and a
+  2 MB cap.
+- **Per-person logins** — HTTP Basic Auth where the username is the profile
+  (moshik, indhu, guest) and each person has their own password (SSM
+  `users`, a JSON object). The signed-in profile is enforced server-side on
+  every profile and job route, so one person can't open another's resume,
+  jobs or tracker. Without `users`, a single shared `site-password` still
+  works and the page shows a profile picker instead.
+- **Optional cover letter** — choose a tailored resume, a cover letter, or
+  both. The cover letter is a separate Claude call grounded only in the
+  resume's content plus facts confirmed via gap answers — same
+  no-fabrication rule as resume edits — rendered as a plain `.docx`.
+- **Saved resume + applications** — your last-uploaded resume is kept as
+  your default (shown as a preview on the first screen), and "Add to my
+  applications" logs each tailored job (company, role, before → after
+  match) to the Applications tab. Both live under `profiles/` in S3 and
+  are never auto-deleted.
+- **Friendly limits** — files up to 4 MB (the Lambda function URL caps a
+  request at 6 MB and uploads arrive base64-encoded) and job ads of
+  80–20,000 characters, with clear messages on both the page and the API.
 
 ## Multi-tenancy note
 
-Profiles are a lightweight partition, not real authentication — anyone with
-the shared site password can pick any profile. This only works because it's
+With per-person logins, profiles are enforced server-side. In the legacy
+shared-password mode they're a lightweight partition, not real
+authentication — anyone with the shared password can pick any profile. This only works because it's
 shared with a small, known group of people. Don't extend this pattern to a
 publicly-signed-up user base without adding real per-user auth (this was an
 explicit, deliberate scope decision, not an oversight).
@@ -113,6 +123,13 @@ optional locally — leave it unset and the password gate is a no-op, so
 local dev is never blocked by it. `/healthz` is always exempt from the
 gate (the pipeline's post-deploy smoke test hits it with no credentials).
 
+For per-person logins locally, set `USERS_JSON='{"moshik":"pw"}'` instead of
+`SITE_PASSWORD`.
+
+Tests: `pip install -r requirements-dev.txt && python -m pytest -q tests`.
+Claude is stubbed and AWS is mocked with moto, so they need no keys or
+network; CI runs them on every PR and before every deploy.
+
 Sample files for testing are in `samples/`: `sample_resume.docx`,
 `sample_resume.pdf`, and `sample_job_description.txt` (regenerate the
 resume samples with `python scripts/generate_samples.py`).
@@ -135,9 +152,11 @@ GitHub Actions deploys the real code.
 
 One-time setup:
 
-1. Store the secrets in SSM (never in Terraform/state):
-   `aws ssm put-parameter --name /resume-tailor/anthropic-api-key --type SecureString --value ...`
-   and the same for `/resume-tailor/site-password`.
+1. Store the secrets in SSM (never in Terraform/state), as SecureStrings:
+   `/resume-tailor/anthropic-api-key`, plus either `/resume-tailor/users`
+   (JSON, e.g. `{"moshik":"...","indhu":"...","guest":"..."}`) for
+   per-person logins or `/resume-tailor/site-password` for one shared
+   password. Changes take effect on the next cold start.
 2. Custom domain (DNS at Namecheap): `terraform apply -target=aws_acm_certificate.site`,
    add the `acm_validation_record` CNAME at Namecheap, then a full `terraform apply`.
    Finally point `resume` at the `cloudfront_domain` output with a CNAME.
@@ -146,10 +165,15 @@ One-time setup:
    If the repo uses GitHub's immutable OIDC subjects, set
    `github_sub_prefix_immutable` (from `gh api repos/Moshik23/resume-updater/actions/oidc/customization/sub`).
 
+Optional: set the `alert_email` workspace variable to get emails when the
+function errors, when Claude calls start failing (`ANALYSIS_FAILED` in the
+logs), and when monthly AWS spend passes 80% of `monthly_budget_usd`
+(default $5). AWS sends a confirmation link first.
+
 ### CI/CD
 
-`.github/workflows/deploy.yml` runs on every push to `master` that touches
-`app/`, `static/` or the workflow: builds a Lambda zip with Linux wheels for
+`.github/workflows/deploy.yml` runs the test suite on every PR and push.
+On pushes to `master` that touch `app/`, `static/` or the workflow, it then builds a Lambda zip with Linux wheels for
 Python 3.12, assumes `resume-tailor-github-deploy` through GitHub OIDC (no
 stored AWS keys; the role can only update this one function's code), deploys,
 and smoke-tests `/healthz` through CloudFront.
@@ -183,6 +207,11 @@ and smoke-tests `/healthz` through CloudFront.
 - PDF input never preserves the original visual layout — see above.
 - The frontend is a single static page with no build step, by design — keep
   it that way rather than reaching for a framework.
+- The resume preview approximates layout from paragraph styles (title,
+  headings, bullets); the downloaded .docx keeps the real formatting.
+- The job-link fetcher checks the address before connecting, so a DNS
+  answer that changes between the check and the request isn't caught.
+  Acceptable behind the login; pin the resolved IP if this ever goes public.
 - Polling a stored status file is simple and cheap at this scale; a busier
   tool would push results back over a WebSocket or use a queue.
 
