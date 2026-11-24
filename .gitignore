@@ -14,8 +14,12 @@ terraform/*.tfplan
 
 # Local job artifacts (Phase 0/1 local storage fallback)
 .local_jobs/
+.local_profiles/
 
 # OS/editor
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Placeholder zip built during plan
+terraform/.build/

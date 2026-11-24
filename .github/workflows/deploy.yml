@@ -1,0 +1,62 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'app/**'
+      - 'static/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # GitHub OIDC token, swapped for short-lived AWS credentials
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # Linux wheels for the Lambda runtime (python3.12, x86_64). boto3 comes with
+      # the runtime, and uvicorn is only for local runs, so neither is packaged.
+      - name: Build Lambda package
+        run: |
+          grep -v '^uvicorn' app/requirements.txt > /tmp/requirements-lambda.txt
+          pip install --quiet --target build -r /tmp/requirements-lambda.txt \
+            --platform manylinux2014_x86_64 --implementation cp --python-version 3.12 --only-binary=:all:
+          cp -r app static build/
+          cd build && zip -qr ../lambda.zip . -x '*__pycache__*'
+          ls -lh ../lambda.zip
+
+      # No stored AWS keys: assumes resume-tailor-github-deploy via OIDC
+      # (terraform/github-oidc.tf), which can only update this one function's code.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          role-session-name: resume-tailor-deploy
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy code
+        run: |
+          aws lambda update-function-code --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}" \
+            --zip-file fileb://lambda.zip --query 'LastUpdateStatus' --output text
+          aws lambda wait function-updated-v2 --function-name "${{ secrets.LAMBDA_FUNCTION_NAME }}"
+
+      # /healthz skips the password but still needs CloudFront's origin secret,
+      # so this proves the whole path: CloudFront -> function URL -> app (SSM secrets loaded)
+      - name: Smoke test
+        run: |
+          for i in 1 2 3 4 5; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://${{ secrets.SITE_HOST }}/healthz") && [ "$code" = "200" ] && { echo "healthz 200"; exit 0; }
+            echo "attempt $i: $code"; sleep 5
+          done
+          exit 1

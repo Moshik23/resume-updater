@@ -1,9 +1,12 @@
 import io
+import json
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import anthropic
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -61,8 +64,59 @@ def _load_analysis(job_id: str) -> GapAnalysis:
     return GapAnalysis.model_validate_json(storage.load_bytes(job_id, "analysis.json"))
 
 
-@router.post("", response_model=JobAnalysisResponse)
+class JobAcceptedResponse(BaseModel):
+    job_id: str
+    status: str
+
+
+def _set_status(job_id: str, state: str, error: str | None = None) -> None:
+    storage.save_bytes(job_id, "status.json", json.dumps({"state": state, "error": error}).encode("utf-8"))
+
+
+def _dispatch_analysis(job_id: str, background: BackgroundTasks) -> None:
+    """Start the slow Claude analysis without holding the HTTP request open.
+
+    On Lambda the function invokes itself asynchronously (see
+    app/lambda_handler.py) -- work left running after a response is frozen,
+    so FastAPI background tasks can't be used there. Locally, a background
+    task does the same job.
+    """
+    function_name = os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+    if function_name:
+        import boto3  # provided by the Lambda runtime
+
+        boto3.client("lambda").invoke(
+            FunctionName=function_name,
+            InvocationType="Event",
+            Payload=json.dumps({"resume_tailor_task": "analyze", "job_id": job_id}).encode("utf-8"),
+        )
+    else:
+        background.add_task(run_analysis, job_id)
+
+
+def run_analysis(job_id: str) -> None:
+    """Gap analysis for a job whose inputs are already stored. Records the outcome in status.json."""
+    try:
+        source_format = storage.load_bytes(job_id, "source_format.txt").decode("utf-8")
+        data = storage.load_bytes(job_id, f"original.{source_format}")
+        job_description = storage.load_bytes(job_id, "job_description.txt").decode("utf-8")
+        analysis = analyze(_extract_blocks(source_format, data), job_description)
+    except anthropic.APIError as exc:
+        _set_status(job_id, "error", f"The AI analysis service failed: {exc.message}")
+        return
+    except Exception as exc:
+        # Covers SDK-level failures raised before any HTTP call (e.g. no
+        # ANTHROPIC_API_KEY configured), not just anthropic.APIError.
+        _set_status(job_id, "error", f"The AI analysis service failed: {exc}")
+        return
+
+    storage.save_bytes(job_id, "analysis.json", analysis.model_dump_json().encode("utf-8"))
+    _set_status(job_id, "done")
+
+
+@router.post("", response_model=JobAcceptedResponse, status_code=202)
 async def create_job(
+    background: BackgroundTasks,
     profile: str = Form(...),
     job_description: str = Form(...),
     resume: UploadFile | None = File(None),
@@ -86,6 +140,7 @@ async def create_job(
 
     job_id = uuid.uuid4().hex
 
+    # Parse up front (fast) so a bad file fails immediately instead of after polling
     try:
         blocks = _extract_blocks(source_format, data)
     except Exception as exc:
@@ -94,29 +149,41 @@ async def create_job(
     if not blocks:
         raise HTTPException(422, "No readable text found in this resume file.")
 
-    try:
-        analysis = analyze(blocks, job_description)
-    except anthropic.APIError as exc:
-        raise HTTPException(502, f"The AI analysis service failed: {exc.message}") from exc
-    except Exception as exc:
-        # Covers SDK-level failures raised before any HTTP call (e.g. no
-        # ANTHROPIC_API_KEY configured), not just anthropic.APIError.
-        raise HTTPException(502, f"The AI analysis service failed: {exc}") from exc
-
     storage.save_bytes(job_id, f"original.{source_format}", data)
     storage.save_bytes(job_id, "source_format.txt", source_format.encode("utf-8"))
-    storage.save_bytes(job_id, "analysis.json", analysis.model_dump_json().encode("utf-8"))
     storage.save_bytes(job_id, "job_description.txt", job_description.encode("utf-8"))
+    _set_status(job_id, "pending")
 
-    return JobAnalysisResponse(
-        job_id=job_id,
-        source_format=source_format,
-        gaps=[g.model_dump() for g in analysis.gaps],
-        suggested_edits=[e.model_dump() for e in analysis.suggested_edits],
-        match_score_before=compute_match_score(analysis),
-        company_name=analysis.company_name,
-        job_title=analysis.job_title,
-    )
+    _dispatch_analysis(job_id, background)
+    return JobAcceptedResponse(job_id=job_id, status="pending")
+
+
+@router.get("/{job_id}")
+async def get_job(job_id: str):
+    """Poll target: {"status": "pending"}, {"status": "error", "detail": ...}, or the full analysis."""
+    if not storage.exists(job_id, "status.json"):
+        raise HTTPException(404, "Unknown job_id")
+    status = json.loads(storage.load_bytes(job_id, "status.json"))
+
+    if status["state"] == "pending":
+        return {"job_id": job_id, "status": "pending"}
+    if status["state"] == "error":
+        return {"job_id": job_id, "status": "error", "detail": status.get("error") or "Analysis failed"}
+
+    analysis = _load_analysis(job_id)
+    source_format = storage.load_bytes(job_id, "source_format.txt").decode("utf-8")
+    return {
+        "status": "done",
+        **JobAnalysisResponse(
+            job_id=job_id,
+            source_format=source_format,
+            gaps=[g.model_dump() for g in analysis.gaps],
+            suggested_edits=[e.model_dump() for e in analysis.suggested_edits],
+            match_score_before=compute_match_score(analysis),
+            company_name=analysis.company_name,
+            job_title=analysis.job_title,
+        ).model_dump(),
+    }
 
 
 @router.post("/{job_id}/answers")
@@ -124,12 +191,21 @@ async def submit_answers(job_id: str, body: AnswersRequest):
     analysis = _load_analysis(job_id)
     answers_by_requirement = {a.requirement: a.answer for a in body.answers}
 
+    to_phrase = []
     for edit in analysis.suggested_edits:
         if edit.requires_user_input and edit.related_gap in answers_by_requirement:
             answer = answers_by_requirement[edit.related_gap]
             gap = next((g for g in analysis.gaps if g.requirement == edit.related_gap), None)
             question = gap.question_to_user if gap else edit.related_gap
-            edit.new_text = phrase_answer_as_bullet(edit.related_gap, question, answer)
+            to_phrase.append((edit, question, answer))
+
+    # One small Claude call per answer -- run them side by side so several
+    # answers don't add up past the CDN's 60s origin timeout.
+    if to_phrase:
+        with ThreadPoolExecutor(max_workers=min(8, len(to_phrase))) as pool:
+            bullets = list(pool.map(lambda t: phrase_answer_as_bullet(t[0].related_gap, t[1], t[2]), to_phrase))
+        for (edit, _, _), bullet in zip(to_phrase, bullets):
+            edit.new_text = bullet
             edit.requires_user_input = False
 
     storage.save_bytes(job_id, "analysis.json", analysis.model_dump_json().encode("utf-8"))
