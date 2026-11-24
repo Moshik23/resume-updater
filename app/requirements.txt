@@ -6,5 +6,6 @@ anthropic
 pydantic-settings
 python-multipart
 mangum
+httpx            # job-link fetching (app/job_fetch.py)
 # boto3 is provided by the AWS Lambda Python runtime; install it yourself
 # (pip install boto3) only if you point a local run at S3/SSM.

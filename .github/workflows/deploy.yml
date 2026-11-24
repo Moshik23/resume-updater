@@ -7,6 +7,7 @@ on:
       - 'app/**'
       - 'static/**'
       - '.github/workflows/deploy.yml'
+  pull_request:          # tests only: every PR gets a check before it can deploy anything
   workflow_dispatch:
 
 permissions:
@@ -14,7 +15,30 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      # Claude is stubbed and AWS is mocked (moto): no keys or network needed
+      - name: Run tests
+        run: |
+          pip install --quiet -r requirements-dev.txt
+          python -m pytest -q tests
+
   deploy:
+    needs: test
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +59,12 @@ jobs:
           cp -r app static build/
           cd build && zip -qr ../lambda.zip . -x '*__pycache__*'
           ls -lh ../lambda.zip
+
+      # Catches a dependency that's installed locally but missing from the package
+      - name: Check the package loads
+        run: |
+          cd /tmp && PYTHONPATH="$GITHUB_WORKSPACE/build" RESUME_TAILOR_SKIP_SSM=1 SSM_PREFIX=/check \
+            python -I -c "import app.lambda_handler; print('package OK')"
 
       # No stored AWS keys: assumes resume-tailor-github-deploy via OIDC
       # (terraform/github-oidc.tf), which can only update this one function's code.

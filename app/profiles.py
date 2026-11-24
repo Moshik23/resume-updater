@@ -24,6 +24,10 @@ def is_valid_profile(profile: str) -> bool:
     return profile in PROFILES
 
 
+def label(profile: str) -> str:
+    return PROFILE_LABELS.get(profile, profile.capitalize())
+
+
 def default_resume_meta(profile: str) -> dict:
     if not storage.profile_exists(profile, "default_resume_filename.txt"):
         return {"exists": False, "filename": None}

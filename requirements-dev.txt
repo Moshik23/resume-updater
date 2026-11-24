@@ -1,0 +1,5 @@
+-r app/requirements.txt
+pytest
+httpx
+boto3
+moto[s3,ssm]

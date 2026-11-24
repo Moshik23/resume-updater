@@ -6,11 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import anthropic
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app import cover_letter, profiles, storage
+from app import cover_letter, job_fetch, profiles, storage
+from app.auth import resolve_profile
 from app.claude_client import analyze, generate_cover_letter, phrase_answer_as_bullet
 from app.models import GapAnalysis, SuggestedEdit, TrackerEntry
 from app.resume_apply import docx_inplace, docx_rebuild
@@ -20,6 +21,12 @@ from app.summary import build_summary_markdown, compute_match_score
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 _SOURCE_FORMATS = {"docx": "docx", "pdf": "pdf"}
+
+# The Lambda function URL caps a request at 6 MB, and uploads arrive base64-encoded,
+# so keep files well under it and say so clearly instead of failing with a bare 413.
+MAX_RESUME_BYTES = 4 * 1024 * 1024
+MAX_JOB_DESCRIPTION_CHARS = 20_000
+MIN_JOB_DESCRIPTION_CHARS = 80
 
 
 class JobAnalysisResponse(BaseModel):
@@ -58,6 +65,15 @@ def _extract_blocks(source_format: str, data: bytes):
     return pdf_ingest.extract(stream)
 
 
+def _check_owner(job_id: str, request: Request) -> None:
+    """With per-person logins, a job can only be read by the person who created it."""
+    signed_in = getattr(request.state, "profile", None)
+    if not storage.exists(job_id, "owner.txt"):
+        raise HTTPException(404, "Unknown job_id")
+    if signed_in and storage.load_bytes(job_id, "owner.txt").decode("utf-8") != signed_in:
+        raise HTTPException(404, "Unknown job_id")
+
+
 def _load_analysis(job_id: str) -> GapAnalysis:
     if not storage.exists(job_id, "analysis.json"):
         raise HTTPException(404, "Unknown job_id")
@@ -67,6 +83,22 @@ def _load_analysis(job_id: str) -> GapAnalysis:
 class JobAcceptedResponse(BaseModel):
     job_id: str
     status: str
+    block_count: int = 0
+
+
+class JobUrlRequest(BaseModel):
+    url: str
+
+
+@router.post("/from-url")
+async def job_from_url(body: JobUrlRequest):
+    """Read a job ad from a link (company careers page, ATS board, MyCareersFuture)."""
+    try:
+        result = job_fetch.fetch_job(body.url)
+    except job_fetch.FetchError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    result["description"] = result["description"][:MAX_JOB_DESCRIPTION_CHARS]
+    return result
 
 
 def _set_status(job_id: str, state: str, error: str | None = None) -> None:
@@ -102,11 +134,13 @@ def run_analysis(job_id: str) -> None:
         job_description = storage.load_bytes(job_id, "job_description.txt").decode("utf-8")
         analysis = analyze(_extract_blocks(source_format, data), job_description)
     except anthropic.APIError as exc:
+        print(f"ANALYSIS_FAILED job={job_id} reason={type(exc).__name__}: {exc.message}")
         _set_status(job_id, "error", f"The AI analysis service failed: {exc.message}")
         return
     except Exception as exc:
         # Covers SDK-level failures raised before any HTTP call (e.g. no
         # ANTHROPIC_API_KEY configured), not just anthropic.APIError.
+        print(f"ANALYSIS_FAILED job={job_id} reason={type(exc).__name__}: {exc}")
         _set_status(job_id, "error", f"The AI analysis service failed: {exc}")
         return
 
@@ -116,13 +150,19 @@ def run_analysis(job_id: str) -> None:
 
 @router.post("", response_model=JobAcceptedResponse, status_code=202)
 async def create_job(
+    request: Request,
     background: BackgroundTasks,
-    profile: str = Form(...),
+    profile: str = Form(""),
     job_description: str = Form(...),
     resume: UploadFile | None = File(None),
 ):
-    if not profiles.is_valid_profile(profile):
-        raise HTTPException(400, "Unknown profile")
+    profile = resolve_profile(request, profile or None)
+
+    job_description = job_description.strip()
+    if len(job_description) < MIN_JOB_DESCRIPTION_CHARS:
+        raise HTTPException(400, "That job description looks too short. Paste the whole ad, requirements included.")
+    if len(job_description) > MAX_JOB_DESCRIPTION_CHARS:
+        raise HTTPException(400, f"That job description is over {MAX_JOB_DESCRIPTION_CHARS:,} characters. Trim it to just the job ad.")
 
     if resume is not None:
         filename = resume.filename or ""
@@ -131,6 +171,8 @@ async def create_job(
         if source_format is None:
             raise HTTPException(400, "Resume must be a .docx or .pdf file")
         data = await resume.read()
+        if len(data) > MAX_RESUME_BYTES:
+            raise HTTPException(413, "That resume file is over 4 MB. Save it without embedded images, or as a smaller PDF.")
         profiles.save_default_resume(profile, filename, source_format, data)
     else:
         meta = profiles.default_resume_meta(profile)
@@ -152,15 +194,18 @@ async def create_job(
     storage.save_bytes(job_id, f"original.{source_format}", data)
     storage.save_bytes(job_id, "source_format.txt", source_format.encode("utf-8"))
     storage.save_bytes(job_id, "job_description.txt", job_description.encode("utf-8"))
+    storage.save_bytes(job_id, "owner.txt", profile.encode("utf-8"))
+    storage.save_bytes(job_id, "blocks.json", json.dumps([b.model_dump() for b in blocks]).encode("utf-8"))
     _set_status(job_id, "pending")
 
     _dispatch_analysis(job_id, background)
-    return JobAcceptedResponse(job_id=job_id, status="pending")
+    return JobAcceptedResponse(job_id=job_id, status="pending", block_count=len(blocks))
 
 
 @router.get("/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, request: Request):
     """Poll target: {"status": "pending"}, {"status": "error", "detail": ...}, or the full analysis."""
+    _check_owner(job_id, request)
     if not storage.exists(job_id, "status.json"):
         raise HTTPException(404, "Unknown job_id")
     status = json.loads(storage.load_bytes(job_id, "status.json"))
@@ -172,8 +217,12 @@ async def get_job(job_id: str):
 
     analysis = _load_analysis(job_id)
     source_format = storage.load_bytes(job_id, "source_format.txt").decode("utf-8")
+    blocks = json.loads(storage.load_bytes(job_id, "blocks.json")) if storage.exists(job_id, "blocks.json") else []
     return {
         "status": "done",
+        "blocks": blocks,
+        "matched_requirements": sorted({m.requirement for m in analysis.matches}),
+        "requirement_count": len(analysis.extracted_requirements),
         **JobAnalysisResponse(
             job_id=job_id,
             source_format=source_format,
@@ -187,7 +236,8 @@ async def get_job(job_id: str):
 
 
 @router.post("/{job_id}/answers")
-async def submit_answers(job_id: str, body: AnswersRequest):
+async def submit_answers(job_id: str, body: AnswersRequest, request: Request):
+    _check_owner(job_id, request)
     analysis = _load_analysis(job_id)
     answers_by_requirement = {a.requirement: a.answer for a in body.answers}
 
@@ -213,7 +263,8 @@ async def submit_answers(job_id: str, body: AnswersRequest):
 
 
 @router.post("/{job_id}/apply")
-async def apply_job(job_id: str, body: ApplyRequest):
+async def apply_job(job_id: str, body: ApplyRequest, request: Request):
+    _check_owner(job_id, request)
     if not storage.exists(job_id, "source_format.txt"):
         raise HTTPException(404, "Unknown job_id")
     if not body.include_resume and not body.include_cover_letter:
@@ -262,10 +313,10 @@ async def apply_job(job_id: str, body: ApplyRequest):
         result["cover_letter_download_url"] = f"/api/jobs/{job_id}/download-cover-letter"
 
     if body.track_application:
-        if not body.profile or not profiles.is_valid_profile(body.profile):
-            raise HTTPException(400, "A valid profile is required to track this application")
+        owner = storage.load_bytes(job_id, "owner.txt").decode("utf-8")
+        profile = resolve_profile(request, body.profile or owner)
         profiles.append_tracker_entry(
-            body.profile,
+            profile,
             TrackerEntry(
                 job_id=job_id,
                 company_name=body.company_name,
@@ -280,7 +331,8 @@ async def apply_job(job_id: str, body: ApplyRequest):
 
 
 @router.get("/{job_id}/download")
-async def download_job(job_id: str):
+async def download_job(job_id: str, request: Request):
+    _check_owner(job_id, request)
     if not storage.exists(job_id, "final.docx"):
         raise HTTPException(404, "No final resume for this job_id yet")
     data = storage.load_bytes(job_id, "final.docx")
@@ -292,7 +344,8 @@ async def download_job(job_id: str):
 
 
 @router.get("/{job_id}/download-cover-letter")
-async def download_cover_letter(job_id: str):
+async def download_cover_letter(job_id: str, request: Request):
+    _check_owner(job_id, request)
     if not storage.exists(job_id, "cover_letter.docx"):
         raise HTTPException(404, "No cover letter for this job_id yet")
     data = storage.load_bytes(job_id, "cover_letter.docx")
@@ -304,7 +357,8 @@ async def download_cover_letter(job_id: str):
 
 
 @router.get("/{job_id}/summary")
-async def download_summary(job_id: str):
+async def download_summary(job_id: str, request: Request):
+    _check_owner(job_id, request)
     if not storage.exists(job_id, "summary.md"):
         raise HTTPException(404, "No summary for this job_id yet")
     data = storage.load_bytes(job_id, "summary.md")

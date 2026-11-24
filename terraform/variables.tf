@@ -37,3 +37,15 @@ variable "deploy_branch" {
   type        = string
   default     = "master"
 }
+
+variable "alert_email" {
+  description = "Where error and budget alerts go. Set as an HCP workspace variable; empty = no alerts."
+  type        = string
+  default     = ""
+}
+
+variable "monthly_budget_usd" {
+  description = "Whole-account monthly AWS spend that triggers a budget email (80% actual, 100% forecast)"
+  type        = number
+  default     = 5
+}

@@ -3,164 +3,180 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Resume Updater</title>
+  <title>Resume Tailor</title>
+  <meta name="theme-color" content="#EFE9DF" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div class="page">
-    <header class="hero">
-      <img src="/photo.jpg" alt="Moshik Seetloo" class="hero-photo" />
-      <h1>Resume Updater</h1>
-      <p class="subtitle">Upload your resume and a job description — get ATS-tailored suggestions, with a plain-English summary of every change.</p>
-      <p class="hero-byline">
-        <a href="https://github.com/Moshik23" target="_blank" rel="noopener noreferrer">Built by Moshik Seetloo</a>
-      </p>
-    </header>
-
-    <nav class="steps" aria-label="Progress">
-      <div class="step is-active" data-step="1">
-        <span class="step-index">1</span>
-        <span class="step-label">Upload</span>
-      </div>
-      <div class="step" data-step="2">
-        <span class="step-index">2</span>
-        <span class="step-label">Review</span>
-      </div>
-      <div class="step" data-step="3">
-        <span class="step-index">3</span>
-        <span class="step-label">Download</span>
-      </div>
+  <header class="bar">
+    <a class="word" href="/">Resume <i>Tailor</i></a>
+    <nav class="nav" aria-label="Sections">
+      <button type="button" data-view="tailor" aria-current="page">Tailor</button>
+      <button type="button" data-view="apps">Applications</button>
     </nav>
+    <div class="who" id="who" hidden>
+      <span id="who-name"></span>
+      <a href="#" id="switch-person" class="who-switch">Switch</a>
+      <span class="avatar" id="who-initial" aria-hidden="true"></span>
+    </div>
+  </header>
 
-    <main>
-      <section id="profile-section" class="card">
-        <fieldset class="outputs-fieldset">
-          <legend class="label-text">Who's using this?</legend>
-          <label class="checkbox-option">
-            <input type="radio" name="profile" id="profile-moshik" value="moshik" />
-            <span>Moshik</span>
-          </label>
-          <label class="checkbox-option">
-            <input type="radio" name="profile" id="profile-indhu" value="indhu" />
-            <span>Indhu</span>
-          </label>
-          <label class="checkbox-option">
-            <input type="radio" name="profile" id="profile-guest" value="guest" />
-            <span>Guest</span>
-          </label>
-        </fieldset>
-        <button type="button" id="view-tracker-button" class="btn btn-secondary" hidden>View my tracked applications</button>
-      </section>
+  <main class="wrap" id="view-tailor">
+    <aside class="side">
+      <!-- ============ 1. Upload ============ -->
+      <section data-step="upload">
+        <h1>Tailor your resume to a job.</h1>
+        <p class="lede">Paste a job ad. You'll see every suggested change marked on your resume before anything is written.</p>
 
-      <section id="tracker-section" class="card" hidden>
-        <div class="summary-header">
-          <h2>Tracked applications</h2>
-          <button type="button" id="close-tracker-button" class="btn btn-secondary">Close</button>
+        <div class="field" id="profile-field" hidden>
+          <span class="label" id="profile-label">Who's using this?</span>
+          <div class="segmented" role="radiogroup" aria-labelledby="profile-label" id="profile-picker"></div>
         </div>
-        <p id="tracker-empty-message" class="empty-message" hidden>No tracked applications yet.</p>
-        <div id="tracker-list"></div>
-      </section>
 
-      <section id="upload-section" class="card">
-        <form id="upload-form">
-          <label>
-            <span class="label-text">Resume</span>
-            <span id="default-resume-note" class="label-hint" hidden></span>
-            <span id="resume-file-hint" class="label-hint">.docx or .pdf</span>
-            <input type="file" id="resume-file" accept=".docx,.pdf" required />
-          </label>
-          <label>
-            <span class="label-text">Job description</span>
-            <textarea id="job-description" rows="10" placeholder="Paste the job description here..." required></textarea>
-          </label>
-          <fieldset class="outputs-fieldset">
-            <legend class="label-text">What do you need?</legend>
-            <label class="checkbox-option">
-              <input type="checkbox" id="output-resume" checked />
-              <span>Tailored resume</span>
+        <form id="upload-form" novalidate>
+          <div class="field">
+            <span class="label">Your resume</span>
+            <div class="saved" id="resume-card" hidden>
+              <span class="doc-ico" aria-hidden="true"></span>
+              <div class="meta"><b id="resume-name"></b><span class="hint" id="resume-hint"></span></div>
+              <button class="linkbtn" type="button" id="replace-resume">Replace</button>
+            </div>
+            <label class="dropzone" id="dropzone" for="resume-file">
+              <span class="doc-ico" aria-hidden="true"></span>
+              <span><b>Choose your resume</b><span class="hint">.docx or .pdf, up to 4 MB. Or drop it anywhere on this page.</span></span>
             </label>
-            <label class="checkbox-option">
-              <input type="checkbox" id="output-cover-letter" />
-              <span>Cover letter</span>
-            </label>
-          </fieldset>
-          <p id="outputs-error" class="status" data-state="error" hidden>Select at least one: tailored resume or cover letter.</p>
-          <button type="submit" class="btn btn-primary">
-            <span class="btn-label">Analyze</span>
-          </button>
+            <input type="file" id="resume-file" accept=".docx,.pdf" class="visually-hidden" />
+            <p class="drop-note" id="drop-note" hidden>Or drop a new .docx or .pdf anywhere on this page.</p>
+          </div>
+
+          <div class="field">
+            <label class="label" for="job-url">Job ad</label>
+            <div class="urlrow">
+              <input id="job-url" type="url" inputmode="url" autocomplete="off" placeholder="Paste a link: careers page, MyCareersFuture, Greenhouse…" />
+              <button class="btn ghost" type="button" id="fetch-job">Fetch</button>
+            </div>
+            <p class="note" id="fetch-note" hidden></p>
+
+            <label class="label label-gap" for="job-description">Job description <span class="hint">· or paste the whole ad yourself</span></label>
+            <textarea id="job-description" rows="9" placeholder="Paste the job ad here, requirements included…"></textarea>
+            <div class="count"><span>Company and role are picked up automatically</span><span id="jd-count">0 / 20,000</span></div>
+          </div>
+
+          <div class="field">
+            <span class="label" id="outputs-label">What do you want back?</span>
+            <div class="toggles" role="group" aria-labelledby="outputs-label">
+              <label class="tog"><input type="checkbox" id="output-resume" checked /> Tailored resume</label>
+              <label class="tog"><input type="checkbox" id="output-cover-letter" /> Cover letter</label>
+            </div>
+          </div>
+
+          <button class="btn wide" type="submit" id="tailor-button">Tailor my resume →</button>
+          <p class="status" id="upload-status" role="status"></p>
+          <p class="fine">Takes about 30–60 seconds. Working files are deleted after 2 days; your saved resume and applications are kept.</p>
         </form>
-        <p id="upload-status" class="status"></p>
       </section>
 
-      <section id="results-section" class="card" hidden>
-        <div class="score-row">
-          <span class="score-label">Current ATS match</span>
-          <span id="score-before" class="score-badge">—</span>
-        </div>
-
-        <h2>Missing requirements</h2>
-        <p id="no-gaps-message" class="empty-message" hidden>No gaps found — your resume already covers the job description well.</p>
-        <div id="gaps-list"></div>
-
-        <h2>Suggested edits</h2>
-        <div id="edits-list"></div>
-
-        <label class="checkbox-option track-option">
-          <input type="checkbox" id="track-application" />
-          <span>Track this application</span>
-        </label>
-        <div id="track-fields" class="track-fields" hidden>
-          <label>
-            <span class="label-text">Company</span>
-            <input type="text" id="track-company" placeholder="Company name" />
-          </label>
-          <label>
-            <span class="label-text">Role</span>
-            <input type="text" id="track-role" placeholder="Job title" />
-          </label>
-        </div>
-
-        <button id="generate-button" class="btn btn-primary">
-          <span id="generate-button-label" class="btn-label">Generate tailored resume</span>
-        </button>
-        <p id="generate-status" class="status"></p>
+      <!-- ============ 2. Working ============ -->
+      <section data-step="working" hidden>
+        <h1 id="working-title">Tailoring your resume…</h1>
+        <p class="lede">Keep this tab open. It's usually ready in under a minute.</p>
+        <ol class="steps" id="working-steps">
+          <li data-s="read"><span class="dot" aria-hidden="true"></span><span>Reading your resume</span></li>
+          <li data-s="match"><span class="dot" aria-hidden="true"></span><span>Matching it against the job ad</span></li>
+          <li data-s="draft"><span class="dot" aria-hidden="true"></span><span>Drafting edits and questions</span></li>
+        </ol>
+        <p class="fine">Nothing is invented: anything your resume can't back up becomes a question for you.</p>
+        <p class="status" id="working-status" role="status"></p>
+        <button class="btn ghost" type="button" id="working-back" hidden>← Back</button>
       </section>
 
-      <section id="summary-section" class="card" hidden>
-        <div id="resume-summary-block">
-          <div class="score-row score-row-comparison">
-            <span class="score-label">ATS match</span>
-            <span id="score-before-after" class="score-comparison">— → —</span>
+      <!-- ============ 3. Review ============ -->
+      <section data-step="review" hidden>
+        <h1 id="review-title">Suggested changes</h1>
+        <p class="lede">Tap a mark on your resume, or a switch below, to keep or skip it.</p>
+        <a class="jump" href="#paper">See the marks on your resume ↓</a>
+
+        <span class="label">ATS match</span>
+        <div class="score"><span class="n" id="score-now">—</span><span class="from" id="score-from"></span></div>
+        <div class="meter" aria-hidden="true"><i id="score-bar"></i><b id="score-base"></b></div>
+        <p class="hint tight">Share of the job's requirements your resume covers once the kept changes apply.</p>
+
+        <div id="questions-block" hidden>
+          <h2 class="section-h" id="questions-title">Questions only you can answer</h2>
+          <div id="questions"></div>
+          <button class="btn ghost" type="button" id="use-answers" hidden>Add my answers to the resume</button>
+          <p class="status" id="answers-status" role="status"></p>
+        </div>
+
+        <h2 class="section-h">Changes</h2>
+        <p class="hint" id="no-edits" hidden>No changes needed. Your resume already covers this job well.</p>
+        <ul class="edit-list" id="edit-list"></ul>
+
+        <div class="track">
+          <label class="tog plain"><input type="checkbox" id="track-application" checked /> Add to my applications</label>
+          <div class="row" id="track-fields">
+            <input type="text" id="track-company" placeholder="Company" aria-label="Company" />
+            <input type="text" id="track-role" placeholder="Role" aria-label="Role" />
           </div>
+        </div>
 
-          <div class="summary-header">
-            <h2>What changed</h2>
-            <label class="toggle">
-              <input type="checkbox" id="checklist-toggle" />
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-              <span class="toggle-label">Show checklist</span>
-            </label>
-          </div>
-          <div id="summary-content" class="summary-content"></div>
-        </div>
-        <div class="download-row">
-          <a id="download-link" class="btn btn-primary" href="#" hidden download>Download tailored resume</a>
-          <a id="cover-letter-download-link" class="btn btn-primary" href="#" hidden download>Download cover letter</a>
-          <a id="summary-download-link" class="btn btn-secondary" href="#" hidden download>Download summary (.md)</a>
-        </div>
+        <button class="btn wide" type="button" id="write-button">Write my resume →</button>
+        <p class="status" id="write-status" role="status"></p>
+        <button class="btn ghost small-gap" type="button" data-restart>← Start over</button>
       </section>
-    </main>
 
-    <footer class="footer">
-      <p>Each job's working files are deleted after 2 days. Your saved default resume and tracked applications are kept until you replace or clear them.</p>
-      <p class="credit">
-        <a href="https://github.com/Moshik23" target="_blank" rel="noopener noreferrer" class="credit-link">
-          <span class="credit-badge">MS</span>
-          Built by Moshik Seetloo
-        </a>
-      </p>
-    </footer>
-  </div>
+      <!-- ============ 4. Done ============ -->
+      <section data-step="done" hidden>
+        <h1 id="done-title">Ready.</h1>
+        <div class="score" id="done-score"><span class="n" id="done-score-now"></span><span class="from" id="done-score-from"></span></div>
+        <p class="hint tight" id="done-note"></p>
+
+        <div class="files">
+          <a class="file" id="download-resume" href="#" download hidden><span class="doc-ico" aria-hidden="true"></span><span class="meta"><b>Tailored resume</b><span class="hint" id="download-resume-hint">.docx · your original formatting kept</span></span><span class="dl">Download</span></a>
+          <a class="file" id="download-cover" href="#" download hidden><span class="doc-ico" aria-hidden="true"></span><span class="meta"><b>Cover letter</b><span class="hint">.docx · based only on what's in your resume</span></span><span class="dl">Download</span></a>
+          <a class="file" id="download-summary" href="#" download hidden><span class="doc-ico" aria-hidden="true"></span><span class="meta"><b>Change summary</b><span class="hint">.md · every edit and why</span></span><span class="dl">Download</span></a>
+        </div>
+        <p class="note ok" id="tracked-note" hidden>Added to your applications.</p>
+        <button class="btn ghost" type="button" data-restart>Tailor for another job</button>
+      </section>
+    </aside>
+
+    <!-- ============ The paper ============ -->
+    <section class="desk" aria-label="Your resume">
+      <span class="paper-tag" id="paper-tag">Your resume</span>
+      <div class="scan" id="scan" hidden></div>
+      <article class="paper" id="paper"></article>
+      <article class="paper changes" id="changes" hidden>
+        <div class="changes-head">
+          <h2>What changed</h2>
+          <label class="tog plain small"><input type="checkbox" id="checklist-toggle" /> Checklist</label>
+        </div>
+        <div id="summary-content" class="summary-content"></div>
+      </article>
+    </section>
+  </main>
+
+  <main class="apps" id="view-apps" hidden>
+    <h1>Your applications</h1>
+    <p class="lede">Every job you've tailored a resume for, newest first.</p>
+    <p class="hint" id="apps-empty" hidden>Nothing yet. Tailor a resume and tick "Add to my applications".</p>
+    <div class="table-wrap">
+      <table id="apps-table" hidden>
+        <thead><tr><th scope="col">Company</th><th scope="col">Role</th><th scope="col">Tailored</th><th scope="col" class="num">Match</th></tr></thead>
+        <tbody id="apps-body"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <div class="drop-overlay" id="drop-overlay" hidden><p>Drop your resume to use it</p></div>
+
+  <footer class="foot">
+    <a href="https://moshikseetloo.com" target="_blank" rel="noopener noreferrer"><img src="/photo.jpg" alt="" width="22" height="22" /> Built by Moshik Seetloo</a>
+  </footer>
+
   <script src="/app.js"></script>
 </body>
 </html>
